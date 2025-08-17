@@ -1,41 +1,29 @@
-import ray
-from ray.rllib.algorithms.dqn import DQNConfig
+import gymnasium as gym
 
-def main():
-    ray.init(ignore_reinit_error=True)
+from stable_baselines3 import PPO
 
-    config = (
-        DQNConfig()
-        .environment("CartPole-v1")
-        .framework("torch")
-        .resources(num_gpus=1)
-        .training(
-            train_batch_size=32,
-            gamma=0.99,
-            lr=1e-3,
-            replay_buffer_config={
-                "type": "PrioritizedEpisodeReplayBuffer",
-                "capacity": 5000,
-                "alpha": 0.5,
-                "beta": 0.5,
-            },
-            target_network_update_freq=5,
-        )
-    )
 
-    # Create the trainer
-    trainer = config.build_algo()
+def train():
+    env = gym.make("CartPole-v1", render_mode="rgb_array")
+    print(env.observation_space)
+    print(env.action_space)
 
-    # Training loop
-    for i in range(20):
-        print("Iteration", i + 1)
-        trainer.train()
+    model = PPO("MlpPolicy", env, verbose=1, device="cpu")
+    model.learn(total_timesteps=50_000, log_interval=10)
+    # model.save("ppo_cartpole")
 
-    print(trainer.evaluate())
+    # del model
 
-    # trainer.export_model(export_formats="pytorch", export_dir="./exported_model")
+    # model = PPO.load("ppo_cartpole")
 
-    ray.shutdown()
+    env = model.get_env()
+    obs = env.reset()
+    while True:
+        action, _states = model.predict(obs, deterministic=True)
+        obs, reward, terminated, info = env.step(action)
+        env.render("human")
+        if terminated:
+            obs = env.reset()
 
-if __name__ == "__main__":
-    main()
+
+train()
