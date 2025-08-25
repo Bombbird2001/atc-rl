@@ -26,10 +26,11 @@ reset_after_step = win32event.CreateEvent(None, False, False, "Local\\ATCRLReset
 class TC2Env(gym.Env):
     # metadata = {"render_modes": ["human", "rgb_array"], "render_fps": 4}
 
-    def __init__(self, is_eval=False, render_mode=None):
+    def __init__(self, is_eval=False, render_mode=None, reset_print_period=1):
         super().__init__()
 
         self.is_eval = is_eval
+        self.reset_print_period = reset_print_period
 
         # Actions[0] = [steps of 5 degree from 0-355]
         # Actions[1] = [steps of 1000 feet from min to max altitude - 2000 to FL150 for Singapore]
@@ -59,7 +60,8 @@ class TC2Env(gym.Env):
         # Send reset signal to simulator
         win32event.SetEvent(reset_sim)
         # Wait for simulator to signal ready for next action
-        print(f"Waiting for action ready after reset: episode {self.episode}")
+        if self.episode % self.reset_print_period == 0:
+            print(f"Waiting for action ready after reset: episode {self.episode}")
         win32event.WaitForSingleObject(action_ready, win32event.INFINITE)
 
         # Get state from shared memory
@@ -71,13 +73,13 @@ class TC2Env(gym.Env):
 
         info = {}
         self.episode += 1
+        self.steps = 0
         return obs, info
 
     def step(self, action):
         # Validate that simulator is ready to accept action (proceed flag)
         mm.seek(0)
         values = struct.unpack(STRUCT_FORMAT, mm.read(FILE_SIZE))
-        # print(int(time.time() * 1000), values)
         proceed_flag = values[0]
         if proceed_flag != 1:
             raise InvalidStateError("Proceed flag must be 1")
@@ -85,13 +87,14 @@ class TC2Env(gym.Env):
         # Write action to shared memory and signal
         mm.seek(0)
         mm.write(struct.pack("bbbb", 1, action[0], action[1], action[2]))
+        # print(action)
 
         # Set the reset request flag before signalling action done
         # The next time the game loop finishes simulating 300 frames, it will stop the update till reset() is called here
         self.steps += 1
         truncated = self.steps >= self.max_steps
-        if (truncated and not self.is_eval) or values[5]:
-            # print(f"Truncating={truncated}, Terminating={values[5]}")
+        if truncated and not self.is_eval:
+            # print(f"Truncating={truncated}")
             win32event.SetEvent(reset_after_step)
 
         # print(int(time.time() * 1000), "Signalled action done")
@@ -101,18 +104,20 @@ class TC2Env(gym.Env):
 
         # Wait till simulator finished simulating 300 frames (action_ready event)
         win32event.WaitForSingleObject(action_ready, win32event.INFINITE)
-        # print(int(time.time() * 1000), "Action ready")
 
         # Read state, reward, terminated, truncated from shared memory
         mm.seek(0)
         values = struct.unpack(STRUCT_FORMAT, mm.read(FILE_SIZE))
+        # print(values[6:11])
         obs = self.normalize_sim_state(np.array(values[6:11]))
         reward = values[4]
         terminated = values[5]
+        # print(obs)
+        if terminated:
+            print("Terminated!")
 
         info = {}
 
-        # print(obs, reward, terminated, truncated)
         return obs, reward, terminated, truncated, info
 
     def render(self):
