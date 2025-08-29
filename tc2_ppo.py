@@ -4,8 +4,8 @@ from stable_baselines3.common.env_util import make_vec_env
 from stable_baselines3.common.monitor import Monitor
 
 
-start_from_version = "v3.1"
-version = "v3.2"
+start_from_version = "v3.3"
+version = "v3.4"
 
 
 def train():
@@ -18,10 +18,10 @@ def train():
         model = PPO.load(f"ppo_tc2_{start_from_version}", env=tc2_env, verbose=1, device="cpu", ent_coef=0.01)
     else:
         model = PPO("MlpPolicy", tc2_env, verbose=1, device="cpu", ent_coef=0.01)
-    model.learn(total_timesteps=300_000, log_interval=100)
+    model.learn(total_timesteps=200_000, log_interval=100)
     print("Training done")
 
-    model.save(f"ppo_tc2_{version}")
+    model.save(f"ppo_tc2_{version}.zip")
 
 
 def run():

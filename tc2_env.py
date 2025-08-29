@@ -85,6 +85,7 @@ class TC2Env(gym.Env):
         self.episode = 0
         self.steps = 0
         self.max_steps = 400
+        self.terminated_count = 0
         self.render_mode = render_mode
 
     def normalize_sim_state(self, sim_state) -> np.ndarray:
@@ -97,7 +98,10 @@ class TC2Env(gym.Env):
         win32event.SetEvent(reset_sim)
         # Wait for simulator to signal ready for next action
         if self.episode % self.reset_print_period == 0:
+            if self.episode > 0:
+                print(f"{self.terminated_count} / {self.reset_print_period} episodes terminated before max_steps")
             print(f"Waiting for action ready after reset: episode {self.episode}")
+            self.terminated_count = 0
         win32event.WaitForSingleObject(action_ready, win32event.INFINITE)
 
         # Get state from shared memory
@@ -150,7 +154,7 @@ class TC2Env(gym.Env):
         terminated = values[5]
         # print(obs)
         if terminated:
-            print("Terminated!")
+            self.terminated_count += 1
 
         info = {}
 
