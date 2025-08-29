@@ -4,16 +4,20 @@ from stable_baselines3.common.env_util import make_vec_env
 from stable_baselines3.common.monitor import Monitor
 
 
-version = "v4"
+start_from_version = "v3.1"
+version = "v3.2"
 
 
 def train():
     backing_env = TC2Env(render_mode="human", reset_print_period=10)
-    env = make_vec_env(lambda: Monitor(backing_env), n_envs=1, monitor_dir=f"./logs/{version}")
-    print(env.observation_space)
-    print(env.action_space)
+    tc2_env = make_vec_env(lambda: Monitor(backing_env), n_envs=1, monitor_dir=f"./logs/{version}")
+    print(tc2_env.observation_space)
+    print(tc2_env.action_space)
 
-    model = PPO("MlpPolicy", env, verbose=1, device="cpu", ent_coef=0.01)
+    if start_from_version is not None:
+        model = PPO.load(f"ppo_tc2_{start_from_version}", env=tc2_env, verbose=1, device="cpu", ent_coef=0.01)
+    else:
+        model = PPO("MlpPolicy", tc2_env, verbose=1, device="cpu", ent_coef=0.01)
     model.learn(total_timesteps=300_000, log_interval=100)
     print("Training done")
 
@@ -25,16 +29,15 @@ def run():
     print("Model loaded")
 
     backing_env = TC2Env(is_eval=True, render_mode="human")
-    env = make_vec_env(lambda: backing_env, n_envs=1)
-    obs = env.reset()
+    tc2_eval_env = make_vec_env(lambda: backing_env, n_envs=1)
+    obs = tc2_eval_env.reset()
     while True:
         action, _states = model.predict(obs, deterministic=True)
-        obs, reward, terminated, info = env.step(action)
-        print(reward)
-        env.render("human")
+        obs, reward, terminated, info = tc2_eval_env.step(action)
+        tc2_eval_env.render("human")
         if terminated:
             print("Terminated")
-            obs = env.reset()
+            obs = tc2_eval_env.reset()
 
 
 # train()

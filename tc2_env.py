@@ -9,9 +9,9 @@ import struct
 import win32event
 
 
-# 32 bytes shared region: [proceed flag(1 byte)] [action(3 bytes)] [reward(4 bytes (1 float))] [terminated(1 byte)] [empty padding(2 bytes)] [state(20 bytes (5x floats))]
-FILE_SIZE = 32
-STRUCT_FORMAT = "bbbbf?xxxfffff"
+# 52 bytes shared region: [proceed flag(1 byte)] [action(3 bytes)] [reward(4 bytes (1 float))] [terminated(1 byte)] [empty padding(2 bytes)] [state(40 bytes (7x floats, 3x ints))]
+FILE_SIZE = 52
+STRUCT_FORMAT = "bbbbf?xxxfffffffiii"
 
 # Create anonymous memory-mapped file with a local name
 mm = mmap.mmap(-1, FILE_SIZE, tagname="Local\\ATCRLSharedMem")
@@ -37,14 +37,50 @@ class TC2Env(gym.Env):
         # Actions[2] = [steps of 10 knots from 160 to 250 knots (for now)]
         self.action_space = spaces.MultiDiscrete([360 // 5, 14, 10])
 
-        # [x, y, alt, gs, track] normalized
+        # [x, y, alt, gs, track, angular speed, vertical speed, current cleared altitude, current cleared heading, current cleared speed] normalized
         self.observation_space = spaces.Box(
-            low=np.array([0, 0, 0, 0, 0]),
-            high=np.array([1.0, 1.0, 1.0, 1.0, 1.0]),
+            low=np.repeat(-1.0, 10),
+            high=np.repeat(1.0, 10),
             dtype=np.float32
         )
-        self.state_multiplier = np.array([4000, 4000, 15000 - 2000, 600, 360])
-        self.state_adder = np.array([-2000, -2000, 2000, 0, 0])
+
+        X_MIN = -2000
+        X_MAX = 2000
+        Y_MIN = -2000
+        Y_MAX = 2000
+        ALT_MIN = 0
+        ALT_MAX = 36000
+        GS_MIN = 0
+        GS_MAX = 600
+        TRACK_MIN = 0
+        TRACK_MAX = 360
+        ANG_SPD_MIN = -4
+        ANG_SPD_MAX = 4
+        VERT_SPD_MIN = -7000
+        VERT_SPD_MAX = 7000
+        CLEARED_ALT_MIN = 2000
+        CLEARED_ALT_MAX = 15000
+        CLEARED_HDG_MIN = 0
+        CLEARED_HDG_MAX = 360
+        CLEARED_SPD_MIN = 160
+        CLEARED_SPD_MAX = 250
+
+        self.state_multiplier = np.array([
+            (X_MAX - X_MIN) / 2, (Y_MAX - Y_MIN) / 2, (ALT_MAX - ALT_MIN) / 2,
+            (GS_MAX - GS_MIN) / 2, (TRACK_MAX - TRACK_MIN) / 2,
+            (ANG_SPD_MAX - ANG_SPD_MIN) / 2, (VERT_SPD_MAX - VERT_SPD_MIN) / 2,
+            (CLEARED_ALT_MAX - CLEARED_ALT_MIN) / 2,
+            (CLEARED_HDG_MAX - CLEARED_HDG_MIN) / 2,
+            (CLEARED_SPD_MAX - CLEARED_SPD_MIN) / 2,
+        ])
+        self.state_adder = np.array([
+            (X_MAX + X_MIN) / 2, (Y_MAX + Y_MIN) / 2, (ALT_MAX + ALT_MIN) / 2,
+            (GS_MAX + GS_MIN) / 2, (TRACK_MAX + TRACK_MIN) / 2,
+            (ANG_SPD_MAX + ANG_SPD_MIN) / 2, (VERT_SPD_MAX + VERT_SPD_MIN) / 2,
+            (CLEARED_ALT_MAX + CLEARED_ALT_MIN) / 2,
+            (CLEARED_HDG_MAX + CLEARED_HDG_MIN) / 2,
+            (CLEARED_SPD_MAX + CLEARED_SPD_MIN) / 2,
+        ])
 
         self.episode = 0
         self.steps = 0
@@ -66,9 +102,9 @@ class TC2Env(gym.Env):
 
         # Get state from shared memory
         mm.seek(12)
-        bytes_read = mm.read(20)
-        values = struct.unpack("fffff", bytes_read)
-        obs = self.normalize_sim_state(np.array(values))
+        bytes_read = mm.read(40)
+        values = struct.unpack("fffffffiii", bytes_read)
+        obs = self.normalize_sim_state(np.array(values, dtype=np.float32))
         # print(obs)
 
         info = {}
@@ -108,8 +144,8 @@ class TC2Env(gym.Env):
         # Read state, reward, terminated, truncated from shared memory
         mm.seek(0)
         values = struct.unpack(STRUCT_FORMAT, mm.read(FILE_SIZE))
-        # print(values[6:11])
-        obs = self.normalize_sim_state(np.array(values[6:11]))
+        # print(values[6:16])
+        obs = self.normalize_sim_state(np.array(values[6:16]))
         reward = values[4]
         terminated = values[5]
         # print(obs)
