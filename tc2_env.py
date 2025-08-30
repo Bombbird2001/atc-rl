@@ -1,10 +1,10 @@
-from asyncio import InvalidStateError
-
 import gymnasium as gym
 from gymnasium import spaces
 import numpy as np
 import mmap
+import os
 import struct
+import subprocess
 import win32event
 
 
@@ -13,11 +13,14 @@ FILE_SIZE = 52
 STRUCT_FORMAT = "bbbbf?xxxfffffffiii"
 
 
+SIMULATOR_DIR = os.getenv("SIMULATOR_DIR")
+
+
 class TC2Env(gym.Env):
     def __init__(self, is_eval=False, render_mode=None, reset_print_period=1, instance_suffix=""):
         super().__init__()
 
-        self.instance_name = f"instance{instance_suffix}"
+        self.instance_name = f"env{instance_suffix}"
 
         # Create anonymous memory-mapped file with a local name
         self.mm = mmap.mmap(-1, FILE_SIZE, tagname=f"Local\\ATCRLSharedMem{instance_suffix}")
@@ -87,7 +90,9 @@ class TC2Env(gym.Env):
         self.terminated_count = 0
         self.render_mode = render_mode
 
-        print(f"[{self.instance_name}] Environment initialized")
+        print(f"[{self.instance_name}] Environment initialized, starting simulator")
+
+        self.sim_process = subprocess.Popen(f"cd {SIMULATOR_DIR} && gradlew --no-daemon :atcRL:run --args='{instance_suffix}'", shell=True)
 
     def normalize_sim_state(self, sim_state) -> np.ndarray:
         return (sim_state - self.state_adder) / self.state_multiplier
@@ -123,7 +128,7 @@ class TC2Env(gym.Env):
         values = struct.unpack(STRUCT_FORMAT, self.mm.read(FILE_SIZE))
         proceed_flag = values[0]
         if proceed_flag != 1:
-            raise InvalidStateError(f"[{self.instance_name}] Proceed flag must be 1")
+            raise ValueError(f"[{self.instance_name}] Proceed flag must be 1")
 
         # Write action to shared memory and signal
         self.mm.seek(0)
