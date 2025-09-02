@@ -17,7 +17,7 @@ SIMULATOR_DIR = os.getenv("SIMULATOR_DIR")
 
 
 class TC2Env(gym.Env):
-    def __init__(self, is_eval=False, render_mode=None, reset_print_period=1, instance_suffix=""):
+    def __init__(self, is_eval=False, render_mode=None, reset_print_period=1, instance_suffix="", init_sim=True):
         super().__init__()
 
         self.instance_name = f"env{instance_suffix}"
@@ -90,9 +90,11 @@ class TC2Env(gym.Env):
         self.terminated_count = 0
         self.render_mode = render_mode
 
-        print(f"[{self.instance_name}] Environment initialized, starting simulator")
+        print(f"[{self.instance_name}] Environment initialized")
 
-        self.sim_process = subprocess.Popen(f"cd {SIMULATOR_DIR} && gradlew --no-daemon :atcRL:run --args='{instance_suffix}'", shell=True)
+        if init_sim:
+            print(f"[{self.instance_name}] Starting simulator")
+            self.sim_process = subprocess.Popen(f"cd {SIMULATOR_DIR} && gradlew --no-daemon :atcRL:run --args='{instance_suffix}'", shell=True)
 
     def normalize_sim_state(self, sim_state) -> np.ndarray:
         return (sim_state - self.state_adder) / self.state_multiplier
