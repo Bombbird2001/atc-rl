@@ -7,22 +7,30 @@ from stable_baselines3.common.env_util import make_vec_env
 from typing import List
 
 
+TRAIN = True
 ENV_COUNT = 1
-ENTROPY_COEF = 0.01
-TIMESTEPS = 200_000
+ENTROPY_COEF = 0.03
+LEARNING_RATE = 7.5e-4
+TIMESTEPS = 600_000
 DEVICE = "cpu"
 AUTO_INIT_SIM = True
-start_from_version = "v4.1"
-version = "v4.2"
+start_from_version = None
+version = "v4.0c"
 
 
 if not AUTO_INIT_SIM:
     ENV_COUNT = 1
 
 
+def linear_schedule(initial_value: float):
+    def func(progress_remaining: float) -> float:
+        return progress_remaining * initial_value
+    return func
+
+
 def make_env(env_id: int, processes: List, auto_init_sim: bool):
     backing_env = TC2Env(render_mode="human", reset_print_period=20, instance_suffix=env_id, init_sim=auto_init_sim)
-    if AUTO_INIT_SIM:
+    if TRAIN and AUTO_INIT_SIM:
         processes.append(backing_env.sim_process)
     return backing_env
 
@@ -36,9 +44,9 @@ def train():
     print("Action space", tc2_env.action_space)
 
     if start_from_version is not None:
-        model = PPO.load(f"ppo_tc2_{start_from_version}", env=tc2_env, verbose=1, device=DEVICE, ent_coef=ENTROPY_COEF)
+        model = PPO.load(f"ppo_tc2_{start_from_version}", env=tc2_env, verbose=1, device=DEVICE, ent_coef=ENTROPY_COEF, learning_rate=linear_schedule(LEARNING_RATE))
     else:
-        model = PPO("MlpPolicy", tc2_env, verbose=1, device=DEVICE, ent_coef=ENTROPY_COEF, learning_rate=5e-5)
+        model = PPO("MlpPolicy", tc2_env, verbose=1, device=DEVICE, ent_coef=ENTROPY_COEF, learning_rate=linear_schedule(LEARNING_RATE))
     start_time = time.time()
     model.learn(total_timesteps=TIMESTEPS, log_interval=20)
     end_time = time.time()
@@ -67,5 +75,7 @@ def run():
 
 
 if __name__ == "__main__":
-    train()
-    # run()
+    if TRAIN:
+        train()
+    else:
+        run()
