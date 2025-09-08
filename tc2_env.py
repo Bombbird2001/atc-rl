@@ -13,7 +13,7 @@ FILE_SIZE = 52
 STRUCT_FORMAT = "bbbbf?xxxfffffffiii"
 
 
-SIMULATOR_DIR = os.getenv("SIMULATOR_DIR")
+SIMULATOR_JAR = os.getenv("SIMULATOR_JAR")
 
 
 class TC2Env(gym.Env):
@@ -94,7 +94,10 @@ class TC2Env(gym.Env):
 
         if init_sim:
             print(f"[{self.instance_name}] Starting simulator")
-            self.sim_process = subprocess.Popen(f"cd {SIMULATOR_DIR} && gradlew --no-daemon :atcRL:run --args='{instance_suffix}'", shell=True)
+            self.sim_process = subprocess.Popen(f"java -jar \"{SIMULATOR_JAR}\" {instance_suffix}", shell=True)
+
+        # At launch, send a single reset signal since reset may be called after simulator starts in multiple environments mode
+        win32event.SetEvent(self.reset_sim)
 
     def normalize_sim_state(self, sim_state) -> np.ndarray:
         return (sim_state - self.state_adder) / self.state_multiplier
