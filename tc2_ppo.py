@@ -8,14 +8,14 @@ from typing import List
 
 
 TRAIN = True
-ENV_COUNT = 1
-ENTROPY_COEF = 0.03
-LEARNING_RATE = 7.5e-4
-TIMESTEPS = 600_000
+ENV_COUNT = 4
+ENTROPY_COEF = 0.02
+LEARNING_RATE = 5e-4
+TIMESTEPS = 1_200_000
 DEVICE = "cpu"
 AUTO_INIT_SIM = True
 start_from_version = None
-version = "v4.0c"
+version = "v5.0"
 
 
 if not AUTO_INIT_SIM:

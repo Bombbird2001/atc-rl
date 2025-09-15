@@ -1,5 +1,6 @@
 import gymnasium as gym
 from gymnasium import spaces
+import itertools
 import numpy as np
 import mmap
 import os
@@ -176,3 +177,15 @@ class TC2Env(gym.Env):
 
     def close(self):
         pass
+
+
+class MCTSState:
+    def __init__(self, backing_env):
+        self.backing_env = backing_env
+        self.possible_actions = list(itertools.product(*[range(n) for n in backing_env.action_space.nvec]))
+
+    def get_possible_actions(self):
+        return self.possible_actions
+
+    def take_action(self, action):
+        self.backing_env.step(action)
