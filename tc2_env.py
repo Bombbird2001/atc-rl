@@ -1,12 +1,14 @@
 import gymnasium as gym
-from gymnasium import spaces
-import itertools
 import numpy as np
 import mmap
 import os
 import struct
 import subprocess
 import win32event
+
+from gymnasium import spaces
+from enum import Enum
+from typing import List, Optional
 
 
 # 52 bytes shared region: [proceed flag(1 byte)] [action(3 bytes)] [reward(4 bytes (1 float))] [terminated(1 byte)] [empty padding(2 bytes)] [state(40 bytes (7x floats, 3x ints))]
@@ -18,7 +20,10 @@ SIMULATOR_JAR = os.getenv("SIMULATOR_JAR")
 
 
 class TC2Env(gym.Env):
-    def __init__(self, is_eval=False, render_mode=None, reset_print_period=1, instance_suffix="", init_sim=True):
+    def __init__(
+            self, is_eval=False, render_mode=None, reset_print_period=1, instance_suffix="",
+            init_sim=True, max_steps=400
+    ):
         super().__init__()
 
         self.instance_name = f"env{instance_suffix}"
@@ -87,7 +92,7 @@ class TC2Env(gym.Env):
 
         self.episode = 0
         self.steps = 0
-        self.max_steps = 400
+        self.max_steps = max_steps
         self.terminated_count = 0
         self.render_mode = render_mode
 
@@ -144,7 +149,7 @@ class TC2Env(gym.Env):
         # Set the reset request flag before signalling action done
         # The next time the game loop finishes simulating 300 frames, it will stop the update till reset() is called here
         self.steps += 1
-        truncated = self.steps >= self.max_steps
+        truncated = self.max_steps is not None and self.steps >= self.max_steps
         if truncated and not self.is_eval:
             # print(f"Truncating={truncated}")
             win32event.SetEvent(self.reset_after_step)
@@ -179,13 +184,73 @@ class TC2Env(gym.Env):
         pass
 
 
+class MCTSPartialState(Enum):
+    HDG_SELECTED = 0
+    HDG_ALT_SELECTED = 1
+    ALL_SELECTED = 2
+
+
 class MCTSState:
-    def __init__(self, backing_env):
+    def __init__(
+            self, backing_env: TC2Env, state: np.ndarray, terminated: bool, terminal_reward: float,
+            state_type: MCTSPartialState, hdg_action: Optional[int], alt_action: Optional[int], spd_action: Optional[int]
+    ):
         self.backing_env = backing_env
-        self.possible_actions = list(itertools.product(*[range(n) for n in backing_env.action_space.nvec]))
+        self.state = state
+        self.terminated = terminated
+        self.terminal_reward = terminal_reward
+        self.state_type = state_type
 
-    def get_possible_actions(self):
-        return self.possible_actions
+        self.hdg_action = hdg_action
+        self.alt_action = alt_action
+        self.spd_action = spd_action
 
-    def take_action(self, action):
-        self.backing_env.step(action)
+        self.possible_actions_hdg = list(range(backing_env.action_space.n_vec[0]))
+        self.possible_actions_alt = list(range(backing_env.action_space.n_vec[1]))
+        self.possible_actions_spd = list(range(backing_env.action_space.n_vec[2]))
+
+    def getPossibleActions(self) -> List[int]:
+        if self.state_type == MCTSPartialState.HDG_SELECTED:
+            return self.possible_actions_alt
+        elif self.state_type == MCTSPartialState.HDG_ALT_SELECTED:
+            return self.possible_actions_spd
+        return self.possible_actions_hdg
+
+    def takeAction(self, action: int):
+        if self.state_type == MCTSPartialState.HDG_SELECTED:
+            return MCTSState(
+                self.backing_env, self.state, self.terminated, self.terminal_reward, MCTSPartialState.HDG_ALT_SELECTED,
+                self.hdg_action, self.alt_action, None
+            )
+        if self.state_type == MCTSPartialState.HDG_ALT_SELECTED:
+            combined_actions = (self.hdg_action, self.alt_action, action)
+            obs, reward, terminated, _, _ = self.backing_env.step(combined_actions)
+            return MCTSState(
+                self.backing_env, obs, terminated, terminal_reward, MCTSPartialState.ALL_SELECTED,
+                None, None, None
+            )
+
+        return MCTSState(
+            self.backing_env, self.state, self.terminated, self.terminal_reward, MCTSPartialState.HDG_SELECTED,
+            self.hdg_action, None, None
+        )
+
+    def isTerminal(self):
+        return self.terminated
+
+    def getReward(self):
+        return self.terminal_reward
+
+    @classmethod
+    def getRootState(cls, backing_env: TC2Env, state: np.ndarray):
+        return MCTSState(
+            backing_env, state, False, 1e20, MCTSPartialState.ALL_SELECTED,
+            None, None, None
+        )
+
+
+def make_env(env_id: int, processes: List, auto_init_sim: bool):
+    backing_env = TC2Env(render_mode="human", reset_print_period=20, instance_suffix=str(env_id), init_sim=auto_init_sim)
+    if auto_init_sim:
+        processes.append(backing_env.sim_process)
+    return backing_env

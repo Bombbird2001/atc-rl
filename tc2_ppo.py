@@ -1,10 +1,9 @@
 import signal
 import time
 
-from tc2_env import TC2Env
+from tc2_env import make_env
 from stable_baselines3 import PPO
 from stable_baselines3.common.env_util import make_vec_env
-from typing import List
 
 
 TRAIN = True
@@ -28,17 +27,10 @@ def linear_schedule(initial_value: float):
     return func
 
 
-def make_env(env_id: int, processes: List, auto_init_sim: bool):
-    backing_env = TC2Env(render_mode="human", reset_print_period=20, instance_suffix=env_id, init_sim=auto_init_sim)
-    if TRAIN and AUTO_INIT_SIM:
-        processes.append(backing_env.sim_process)
-    return backing_env
-
-
 def train():
     processes_to_kill = []
     tc2_env = make_vec_env(make_env, n_envs=ENV_COUNT,
-                           env_kwargs={"processes": processes_to_kill, "auto_init_sim": AUTO_INIT_SIM}, monitor_dir=f"./logs/{version}"
+                           env_kwargs={"processes": processes_to_kill, "auto_init_sim": TRAIN and AUTO_INIT_SIM}, monitor_dir=f"./logs/{version}"
                            )
     print("State space:", tc2_env.observation_space)
     print("Action space", tc2_env.action_space)
