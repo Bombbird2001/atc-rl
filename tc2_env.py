@@ -1,19 +1,12 @@
 import gymnasium as gym
 import numpy as np
-import mmap
 import os
-import struct
 import subprocess
-import win32event
 
+from game_bridge import GameBridge
 from gymnasium import spaces
 from enum import Enum
 from typing import List, Optional
-
-
-# 52 bytes shared region: [proceed flag(1 byte)] [action(3 bytes)] [reward(4 bytes (1 float))] [terminated(1 byte)] [empty padding(2 bytes)] [state(40 bytes (7x floats, 3x ints))]
-FILE_SIZE = 52
-STRUCT_FORMAT = "bbbbf?xxxfffffffiii"
 
 
 SIMULATOR_JAR = os.getenv("SIMULATOR_JAR")
@@ -26,16 +19,9 @@ class TC2Env(gym.Env):
     ):
         super().__init__()
 
+        self.sim_bridge = GameBridge.get_bridge_for_platform(instance_suffix=instance_suffix)
+
         self.instance_name = f"env{instance_suffix}"
-
-        # Create anonymous memory-mapped file with a local name
-        self.mm = mmap.mmap(-1, FILE_SIZE, tagname=f"Local\\ATCRLSharedMem{instance_suffix}")
-
-        # Named events for synchronization
-        self.reset_sim = win32event.CreateEvent(None, False, False, f"Local\\ATCRLResetEvent{instance_suffix}")
-        self.action_ready = win32event.CreateEvent(None, False, False, f"Local\\ATCRLActionReadyEvent{instance_suffix}")
-        self.action_done = win32event.CreateEvent(None, False, False, f"Local\\ATCRLActionDoneEvent{instance_suffix}")
-        self.reset_after_step = win32event.CreateEvent(None, False, False, f"Local\\ATCRLResetAfterEvent{instance_suffix}")
 
         self.is_eval = is_eval
         self.reset_print_period = reset_print_period
@@ -103,7 +89,7 @@ class TC2Env(gym.Env):
             self.sim_process = subprocess.Popen(f"java -jar \"{SIMULATOR_JAR}\" {instance_suffix}", shell=True)
 
         # At launch, send a single reset signal since reset may be called after simulator starts in multiple environments mode
-        win32event.SetEvent(self.reset_sim)
+        self.sim_bridge.signal_reset_sim()
 
     def normalize_sim_state(self, sim_state) -> np.ndarray:
         return (sim_state - self.state_adder) / self.state_multiplier
@@ -112,19 +98,17 @@ class TC2Env(gym.Env):
         super().reset(seed=seed)
 
         # Send reset signal to simulator
-        win32event.SetEvent(self.reset_sim)
+        self.sim_bridge.signal_reset_sim()
         # Wait for simulator to signal ready for next action
         if self.episode % self.reset_print_period == 0:
             if self.episode > 0:
                 print(f"[{self.instance_name}] {self.terminated_count} / {self.reset_print_period} episodes terminated before max_steps")
             print(f"[{self.instance_name}] Waiting for action ready after reset: episode {self.episode}")
             self.terminated_count = 0
-        win32event.WaitForSingleObject(self.action_ready, win32event.INFINITE)
+        self.sim_bridge.wait_action_ready()
 
         # Get state from shared memory
-        self.mm.seek(12)
-        bytes_read = self.mm.read(40)
-        values = struct.unpack("fffffffiii", bytes_read)
+        values = self.sim_bridge.get_aircraft_state()
         obs = self.normalize_sim_state(np.array(values, dtype=np.float32))
         # print(obs)
 
@@ -135,15 +119,13 @@ class TC2Env(gym.Env):
 
     def step(self, action):
         # Validate that simulator is ready to accept action (proceed flag)
-        self.mm.seek(0)
-        values = struct.unpack(STRUCT_FORMAT, self.mm.read(FILE_SIZE))
+        values = self.sim_bridge.get_total_state()
         proceed_flag = values[0]
         if proceed_flag != 1:
             raise ValueError(f"[{self.instance_name}] Proceed flag must be 1")
 
         # Write action to shared memory and signal
-        self.mm.seek(0)
-        self.mm.write(struct.pack("bbbb", 1, action[0], action[1], action[2]))
+        self.sim_bridge.write_actions(action[0], action[1], action[2])
         # print(action)
 
         # Set the reset request flag before signalling action done
@@ -152,19 +134,18 @@ class TC2Env(gym.Env):
         truncated = self.max_steps is not None and self.steps >= self.max_steps
         if truncated and not self.is_eval:
             # print(f"Truncating={truncated}")
-            win32event.SetEvent(self.reset_after_step)
+            self.sim_bridge.signal_reset_after_step()
 
         # print(int(time.time() * 1000), "Signalled action done")
-        win32event.SetEvent(self.action_done)
+        self.sim_bridge.signal_action_done()
 
         # print("Waiting for action ready")
 
         # Wait till simulator finished simulating 300 frames (action_ready event)
-        win32event.WaitForSingleObject(self.action_ready, win32event.INFINITE)
+        self.sim_bridge.wait_action_ready()
 
         # Read state, reward, terminated, truncated from shared memory
-        self.mm.seek(0)
-        values = struct.unpack(STRUCT_FORMAT, self.mm.read(FILE_SIZE))
+        values = self.sim_bridge.get_total_state()
         # print(values[6:16])
         obs = self.normalize_sim_state(np.array(values[6:16]))
         reward = values[4]
