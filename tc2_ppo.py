@@ -1,3 +1,4 @@
+import platform
 import signal
 import time
 
@@ -49,7 +50,7 @@ def train():
     if AUTO_INIT_SIM:
         print("Ending simulator process(es)")
         for process in processes_to_kill:
-            process.send_signal(signal.CTRL_C_EVENT)
+            process.send_signal(signal.CTRL_C_EVENT if platform.system() == "Windows" else signal.SIGINT)
 
 
 def run():

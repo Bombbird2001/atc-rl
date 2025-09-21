@@ -1,10 +1,10 @@
+import mmap
 import platform
+import struct
 
 os_name = platform.system()
 if os_name == "Windows":
-    import mmap
     import win32event
-    import struct
 elif os_name == "Darwin" or os_name == "Linux":
     import posix_ipc
 
@@ -39,6 +39,10 @@ class GameBridge(ABC):
 
     @abstractmethod
     def write_actions(self, hdg_action, alt_action, spd_action):
+        raise NotImplementedError
+
+    @abstractmethod
+    def close(self):
         raise NotImplementedError
 
     @classmethod
@@ -90,21 +94,36 @@ class WindowsGameBridge(GameBridge):
         self.mm.seek(0)
         self.mm.write(struct.pack("bbbb", 1, hdg_action, alt_action, spd_action))
 
+    def close(self):
+        self.mm.close()
+
 
 class UnixGameBridge(GameBridge):
     # 52 bytes shared region: [proceed flag(1 byte)] [action(3 bytes)] [reward(4 bytes (1 float))] [terminated(1 byte)] [empty padding(2 bytes)] [state(40 bytes (7x floats, 3x ints))]
     FILE_SIZE = 52
     STRUCT_FORMAT = "bbbbf?xxxfffffffiii"
 
-    def __init__(self, instance_suffix=""):
-        shm = posix_ipc.SharedMemory(f"ATCRLSharedMem{instance_suffix}", posix_ipc.O_CREX, size=self.__class__.FILE_SIZE)
-        self.mm = mmap.mmap(shm.fd, shm.size)
-        shm.close_fd()
+    def __create_semaphore__(self, name):
+        try:
+            return posix_ipc.Semaphore(name, posix_ipc.O_CREAT, initial_value=0)
+        except posix_ipc.ExistentialError as e:
+            posix_ipc.unlink_semaphore(name)
+            return posix_ipc.Semaphore(name, posix_ipc.O_CREAT, initial_value=0)
 
-        self.reset_sim = posix_ipc.Semaphore(f"ATCRLResetEvent{instance_suffix}")
-        self.action_ready = posix_ipc.Semaphore(f"ATCRLActionReadyEvent{instance_suffix}")
-        self.action_done = posix_ipc.Semaphore(f"ATCRLActionDoneEvent{instance_suffix}")
-        self.reset_after_step = posix_ipc.Semaphore(f"ATCRLResetAfterEvent{instance_suffix}")
+    def __init__(self, instance_suffix=""):
+        try:
+            self.shm = posix_ipc.SharedMemory(f"ATCRLSharedMem{instance_suffix}", posix_ipc.O_CREX, size=self.__class__.FILE_SIZE)
+        except posix_ipc.ExistentialError:
+            posix_ipc.unlink_shared_memory(f"ATCRLSharedMem{instance_suffix}")
+            self.shm = posix_ipc.SharedMemory(f"ATCRLSharedMem{instance_suffix}", posix_ipc.O_CREX, size=self.__class__.FILE_SIZE)
+
+        self.mm = mmap.mmap(self.shm.fd, self.shm.size)
+        self.shm.close_fd()
+
+        self.reset_sim = self.__create_semaphore__(f"ATCRLResetEvent{instance_suffix}")
+        self.action_ready = self.__create_semaphore__(f"ATCRLActionReadyEvent{instance_suffix}")
+        self.action_done = self.__create_semaphore__(f"ATCRLActionDoneEvent{instance_suffix}")
+        self.reset_after_step = self.__create_semaphore__(f"ATCRLResetAfterEvent{instance_suffix}")
 
     def signal_reset_sim(self):
         self.reset_sim.release()
@@ -129,3 +148,11 @@ class UnixGameBridge(GameBridge):
     def write_actions(self, hdg_action, alt_action, spd_action):
         self.mm.seek(0)
         self.mm.write(struct.pack("bbbb", 1, hdg_action, alt_action, spd_action))
+
+    def close(self):
+        self.mm.close()
+        self.shm.unlink()
+        self.reset_sim.unlink()
+        self.action_ready.unlink()
+        self.action_done.unlink()
+        self.reset_after_step.unlink()

@@ -162,7 +162,7 @@ class TC2Env(gym.Env):
         pass
 
     def close(self):
-        pass
+        self.sim_bridge.close()
 
 
 class MCTSPartialState(Enum):
