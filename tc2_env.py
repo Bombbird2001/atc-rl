@@ -231,7 +231,7 @@ class MCTSState:
 
 
 def make_env(env_id: int, processes: List, auto_init_sim: bool):
-    backing_env = TC2Env(render_mode="human", reset_print_period=20, instance_suffix=str(env_id), init_sim=auto_init_sim)
+    backing_env = TC2Env(render_mode="human", reset_print_period=50, instance_suffix=str(env_id), init_sim=auto_init_sim)
     if auto_init_sim:
         processes.append(backing_env.sim_process)
     return backing_env
