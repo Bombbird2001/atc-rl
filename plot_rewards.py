@@ -2,7 +2,7 @@ from stable_baselines3.common.results_plotter import load_results, ts2xy
 import matplotlib.pyplot as plt
 
 
-version = "v4.0d"
+version = "random-spawn-dir-v1.0"
 
 
 # Load Monitor logs

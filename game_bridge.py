@@ -14,6 +14,10 @@ from abc import ABC, abstractmethod
 
 class GameBridge(ABC):
     @abstractmethod
+    def signal_trainer_initialized(self):
+        pass
+
+    @abstractmethod
     def signal_reset_sim(self):
         raise NotImplementedError
 
@@ -56,19 +60,23 @@ class GameBridge(ABC):
 
 
 class WindowsGameBridge(GameBridge):
-    # 52 bytes shared region: [proceed flag(1 byte)] [action(3 bytes)] [reward(4 bytes (1 float))] [terminated(1 byte)] [empty padding(2 bytes)] [state(40 bytes (7x floats, 3x ints))]
+    # 52 bytes shared region: [proceed flag(1 byte)] [terminated(1 byte)] [action altitude(1 byte)] [action speed(1 byte)] [reward(4 bytes (1 float))] [action heading(2 bytes)] [padding(2 bytes)] [state(40 bytes (7x floats, 3x ints))]
     FILE_SIZE = 52
-    STRUCT_FORMAT = "bbbbf?xxxfffffffiii"
+    STRUCT_FORMAT = "b?bbfhxxfffffffiii"
 
     def __init__(self, instance_suffix=""):
         # Create anonymous memory-mapped file with a local name
         self.mm = mmap.mmap(-1, self.__class__.FILE_SIZE, tagname=f"Local\\ATCRLSharedMem{instance_suffix}")
 
         # Named events for synchronization
+        self.trainer_initialized = win32event.CreateEvent(None, False, False, f"Local\\ATCRLTrainerInit{instance_suffix}")
         self.reset_sim = win32event.CreateEvent(None, False, False, f"Local\\ATCRLResetEvent{instance_suffix}")
         self.action_ready = win32event.CreateEvent(None, False, False, f"Local\\ATCRLActionReadyEvent{instance_suffix}")
         self.action_done = win32event.CreateEvent(None, False, False, f"Local\\ATCRLActionDoneEvent{instance_suffix}")
         self.reset_after_step = win32event.CreateEvent(None, False, False, f"Local\\ATCRLResetAfterEvent{instance_suffix}")
+
+    def signal_trainer_initialized(self):
+        win32event.SetEvent(self.trainer_initialized)
 
     def signal_reset_sim(self):
         win32event.SetEvent(self.reset_sim)
@@ -88,25 +96,27 @@ class WindowsGameBridge(GameBridge):
 
     def get_aircraft_state(self) -> tuple:
         self.mm.seek(12)
-        return struct.unpack(self.__class__.STRUCT_FORMAT[9:], self.mm.read(self.__class__.FILE_SIZE - 12))
+        return struct.unpack(self.__class__.STRUCT_FORMAT[8:], self.mm.read(self.__class__.FILE_SIZE - 12))
 
     def write_actions(self, hdg_action, alt_action, spd_action):
-        self.mm.seek(0)
-        self.mm.write(struct.pack("bbbb", 1, hdg_action, alt_action, spd_action))
+        self.mm.seek(2)
+        self.mm.write(struct.pack("bb",alt_action, spd_action))
+        self.mm.seek(8)
+        self.mm.write(struct.pack("h",hdg_action))
 
     def close(self):
         self.mm.close()
 
 
 class UnixGameBridge(GameBridge):
-    # 52 bytes shared region: [proceed flag(1 byte)] [action(3 bytes)] [reward(4 bytes (1 float))] [terminated(1 byte)] [empty padding(2 bytes)] [state(40 bytes (7x floats, 3x ints))]
+    # 52 bytes shared region: [proceed flag(1 byte)] [terminated(1 byte)] [action altitude(1 byte)] [action speed(1 byte)] [reward(4 bytes (1 float))] [action heading(2 bytes)] [padding(2 bytes)] [state(40 bytes (7x floats, 3x ints))]
     FILE_SIZE = 52
-    STRUCT_FORMAT = "bbbbf?xxxfffffffiii"
+    STRUCT_FORMAT = "b?bbfhxxfffffffiii"
 
     def __create_semaphore__(self, name):
         try:
             return posix_ipc.Semaphore(name, posix_ipc.O_CREAT, initial_value=0)
-        except posix_ipc.ExistentialError as e:
+        except posix_ipc.ExistentialError:
             posix_ipc.unlink_semaphore(name)
             return posix_ipc.Semaphore(name, posix_ipc.O_CREAT, initial_value=0)
 
@@ -120,10 +130,14 @@ class UnixGameBridge(GameBridge):
         self.mm = mmap.mmap(self.shm.fd, self.shm.size)
         self.shm.close_fd()
 
+        self.trainer_initialized = self.__create_semaphore__(f"ATCRLTrainerInit{instance_suffix}")
         self.reset_sim = self.__create_semaphore__(f"ATCRLResetEvent{instance_suffix}")
         self.action_ready = self.__create_semaphore__(f"ATCRLActionReadyEvent{instance_suffix}")
         self.action_done = self.__create_semaphore__(f"ATCRLActionDoneEvent{instance_suffix}")
         self.reset_after_step = self.__create_semaphore__(f"ATCRLResetAfterEvent{instance_suffix}")
+
+    def signal_trainer_initialized(self):
+        self.trainer_initialized.release()
 
     def signal_reset_sim(self):
         self.reset_sim.release()
@@ -143,11 +157,13 @@ class UnixGameBridge(GameBridge):
 
     def get_aircraft_state(self) -> tuple:
         self.mm.seek(12)
-        return struct.unpack(self.__class__.STRUCT_FORMAT[9:], self.mm.read(self.__class__.FILE_SIZE - 12))
+        return struct.unpack(self.__class__.STRUCT_FORMAT[8:], self.mm.read(self.__class__.FILE_SIZE - 12))
 
     def write_actions(self, hdg_action, alt_action, spd_action):
-        self.mm.seek(0)
-        self.mm.write(struct.pack("bbbb", 1, hdg_action, alt_action, spd_action))
+        self.mm.seek(2)
+        self.mm.write(struct.pack("bb",alt_action, spd_action))
+        self.mm.seek(8)
+        self.mm.write(struct.pack("h",hdg_action))
 
     def close(self):
         self.mm.close()

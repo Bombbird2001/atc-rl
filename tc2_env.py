@@ -1,6 +1,7 @@
 import gymnasium as gym
 import numpy as np
 import os
+import random
 import subprocess
 
 from game_bridge import GameBridge
@@ -19,17 +20,20 @@ class TC2Env(gym.Env):
     ):
         super().__init__()
 
+        if init_sim:
+            instance_suffix = f"{instance_suffix}_{random.randbytes(3).hex()}"
         self.sim_bridge = GameBridge.get_bridge_for_platform(instance_suffix=instance_suffix)
+        self.signalled_ready = False
 
         self.instance_name = f"env{instance_suffix}"
 
         self.is_eval = is_eval
         self.reset_print_period = reset_print_period
 
-        # Actions[0] = [steps of 5 degree from 0-355]
+        # Actions[0] = [steps of 1 degree from 0-359]
         # Actions[1] = [steps of 1000 feet from min to max altitude - 2000 to FL150 for Singapore]
         # Actions[2] = [steps of 10 knots from 160 to 250 knots (for now)]
-        self.action_space = spaces.MultiDiscrete([360 // 5, 14, 10])
+        self.action_space = spaces.MultiDiscrete([360, 14, 10])
 
         # [x, y, alt, gs, track, angular speed, vertical speed, current cleared altitude, current cleared heading, current cleared speed] normalized
         self.observation_space = spaces.Box(
@@ -88,14 +92,16 @@ class TC2Env(gym.Env):
             print(f"[{self.instance_name}] Starting simulator")
             self.sim_process = subprocess.Popen(f"java -jar \"{SIMULATOR_JAR}\" {instance_suffix}", shell=True)
 
-        # At launch, send a single reset signal since reset may be called after simulator starts in multiple environments mode
-        self.sim_bridge.signal_reset_sim()
 
     def normalize_sim_state(self, sim_state) -> np.ndarray:
         return (sim_state - self.state_adder) / self.state_multiplier
 
     def reset(self, *, seed=None, options=None):
         super().reset(seed=seed)
+
+        if not self.signalled_ready:
+            self.sim_bridge.signal_trainer_initialized()
+            self.signalled_ready = True
 
         # Send reset signal to simulator
         self.sim_bridge.signal_reset_sim()
@@ -139,7 +145,7 @@ class TC2Env(gym.Env):
         # print(int(time.time() * 1000), "Signalled action done")
         self.sim_bridge.signal_action_done()
 
-        # print("Waiting for action ready")
+        # print(f"{time.time()} Waiting for action ready")
 
         # Wait till simulator finished simulating 300 frames (action_ready event)
         self.sim_bridge.wait_action_ready()
@@ -149,7 +155,7 @@ class TC2Env(gym.Env):
         # print(values[6:16])
         obs = self.normalize_sim_state(np.array(values[6:16]))
         reward = values[4]
-        terminated = values[5]
+        terminated = values[1]
         # print(obs)
         if terminated:
             self.terminated_count += 1
