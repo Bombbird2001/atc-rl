@@ -8,14 +8,14 @@ from stable_baselines3.common.env_util import make_vec_env
 
 
 TRAIN = True
-ENV_COUNT = 1
-ENTROPY_COEF = 0.02
-LEARNING_RATE = 2e-4
-TIMESTEPS = 1_000_000
+ENV_COUNT = 4
+ENTROPY_COEF = 0.03
+LEARNING_RATE = 5e-5
+TIMESTEPS = 1_600_000
 DEVICE = "cpu"
 AUTO_INIT_SIM = True
-start_from_version = None
-version = "random-spawn-dir-v1.0"
+start_from_version = "random-spawn-dir-v2.2"
+version = "random-spawn-dir-v2.3c"
 
 
 if not AUTO_INIT_SIM:
@@ -31,7 +31,11 @@ def linear_schedule(initial_value: float):
 def train():
     processes_to_kill = []
     tc2_env = make_vec_env(make_env, n_envs=ENV_COUNT,
-                           env_kwargs={"processes": processes_to_kill, "auto_init_sim": TRAIN and AUTO_INIT_SIM}, monitor_dir=f"./logs/{version}"
+                           env_kwargs={
+                               "processes": processes_to_kill,
+                               "auto_init_sim": TRAIN and AUTO_INIT_SIM,
+                               "reset_print_period": 50,
+                           }, monitor_dir=f"./logs/{version}"
                            )
     print("State space:", tc2_env.observation_space)
     print("Action space", tc2_env.action_space)
@@ -57,14 +61,16 @@ def run():
     model = PPO.load(f"ppo_tc2_{version}", device="cpu")
     print("Model loaded")
 
-    tc2_eval_env = make_vec_env(make_env, n_envs=1, env_kwargs={"processes": [], "auto_init_sim": False})
+    tc2_eval_env = make_vec_env(make_env, n_envs=1,
+                                env_kwargs={
+                                    "processes": [],
+                                    "auto_init_sim": False,
+                                    "reset_print_period": 1,
+                                })
     obs = tc2_eval_env.reset()
     while True:
         action, _states = model.predict(obs, deterministic=True)
         obs, reward, terminated, info = tc2_eval_env.step(action)
-        if terminated:
-            print("Terminated")
-            obs = tc2_eval_env.reset()
 
 
 if __name__ == "__main__":
