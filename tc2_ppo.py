@@ -1,12 +1,13 @@
-import platform
-import signal
 import time
 
-from tc2_env import make_env
-from stable_baselines3 import PPO
+from rl_algos import RLAlgos
 from stable_baselines3.common.env_util import make_vec_env
+from tc2_env import make_env
 
 
+ALGO = RLAlgos.PPO
+algo = ALGO.value
+algo_name = ALGO.name
 TRAIN = True
 ENV_COUNT = 4
 ENTROPY_COEF = 0.03
@@ -29,41 +30,35 @@ def linear_schedule(initial_value: float):
 
 
 def train():
-    processes_to_kill = []
     tc2_env = make_vec_env(make_env, n_envs=ENV_COUNT,
                            env_kwargs={
-                               "processes": processes_to_kill,
                                "auto_init_sim": TRAIN and AUTO_INIT_SIM,
                                "reset_print_period": 50,
-                           }, monitor_dir=f"./logs/{version}"
+                           }, monitor_dir=f"./{algo_name}/logs/{version}"
                            )
     print("State space:", tc2_env.observation_space)
     print("Action space", tc2_env.action_space)
 
     if start_from_version is not None:
-        model = PPO.load(f"ppo_tc2_{start_from_version}", env=tc2_env, verbose=1, device=DEVICE, ent_coef=ENTROPY_COEF, learning_rate=linear_schedule(LEARNING_RATE))
+        model = algo.load(path=f"{algo_name}/{algo_name}_tc2_{start_from_version}", env=tc2_env, verbose=1, device=DEVICE, ent_coef=ENTROPY_COEF, learning_rate=linear_schedule(LEARNING_RATE))
     else:
-        model = PPO("MlpPolicy", tc2_env, verbose=1, device=DEVICE, ent_coef=ENTROPY_COEF, learning_rate=linear_schedule(LEARNING_RATE))
+        model = algo.new(policy="MlpPolicy", env=tc2_env, verbose=1, device=DEVICE, ent_coef=ENTROPY_COEF, learning_rate=linear_schedule(LEARNING_RATE))
     start_time = time.time()
     model.learn(total_timesteps=TIMESTEPS, log_interval=20)
     end_time = time.time()
     print(f"Training done in {((end_time - start_time) // 60):.0f}m {((end_time - start_time) % 60):.2f}s")
 
-    model.save(f"ppo_tc2_{version}.zip")
+    model.save(f"{algo_name}/{algo_name}_tc2_{version}.zip")
 
-    if AUTO_INIT_SIM:
-        print("Ending simulator process(es)")
-        for process in processes_to_kill:
-            process.send_signal(signal.CTRL_C_EVENT if platform.system() == "Windows" else signal.SIGINT)
+    tc2_env.close()
 
 
 def run():
-    model = PPO.load(f"ppo_tc2_{version}", device="cpu")
+    model = algo.load(path=f"{algo_name}/{algo_name}_tc2_{version}", device="cpu")
     print("Model loaded")
 
     tc2_eval_env = make_vec_env(make_env, n_envs=1,
                                 env_kwargs={
-                                    "processes": [],
                                     "auto_init_sim": False,
                                     "reset_print_period": 1,
                                 })

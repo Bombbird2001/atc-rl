@@ -4,7 +4,7 @@ from tc2_env import make_env, MCTSState
 
 def run():
     mcts_search = mcts(timeLimit=3333)
-    tc2_env = make_env(env_id=0, processes=[], auto_init_sim=False)
+    tc2_env = make_env(env_id=0, auto_init_sim=False, reset_print_period=1)
     current_state = MCTSState.getRootState(tc2_env, tc2_env.reset()[0])
     while True:
         actions = []

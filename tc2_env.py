@@ -1,6 +1,8 @@
 import gymnasium as gym
 import numpy as np
 import os
+import platform
+import signal
 import random
 import subprocess
 
@@ -22,6 +24,7 @@ class TC2Env(gym.Env):
 
         if init_sim:
             instance_suffix = f"{instance_suffix}_{random.randbytes(3).hex()}"
+        self.init_sim = init_sim
         self.sim_bridge = GameBridge.get_bridge_for_platform(instance_suffix=instance_suffix)
         self.signalled_ready = False
 
@@ -169,6 +172,9 @@ class TC2Env(gym.Env):
 
     def close(self):
         self.sim_bridge.close()
+        if self.init_sim:
+            print(f"[{self.instance_name}] Ending simulator process")
+            self.sim_process.send_signal(signal.CTRL_C_EVENT if platform.system() == "Windows" else signal.SIGINT)
 
 
 class MCTSPartialState(Enum):
@@ -236,8 +242,6 @@ class MCTSState:
         )
 
 
-def make_env(env_id: int, processes: List, auto_init_sim: bool, reset_print_period: int):
+def make_env(env_id: int, auto_init_sim: bool, reset_print_period: int):
     backing_env = TC2Env(render_mode="human", reset_print_period=reset_print_period, instance_suffix=str(env_id), init_sim=auto_init_sim)
-    if auto_init_sim:
-        processes.append(backing_env.sim_process)
     return backing_env
