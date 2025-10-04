@@ -10,7 +10,7 @@ class RLAlgo:
         return self.algo_class(**kwargs)
 
     def load(self, **kwargs):
-        self.algo_class.load(**kwargs)
+        return self.algo_class.load(**kwargs)
 
 
 class RLAlgos(enum.Enum):

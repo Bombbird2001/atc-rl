@@ -9,6 +9,7 @@ import subprocess
 from game_bridge import GameBridge
 from gymnasium import spaces
 from enum import Enum
+from rl_algos import RLAlgo, RLAlgos
 from typing import List, Optional
 
 
@@ -17,7 +18,7 @@ SIMULATOR_JAR = os.getenv("SIMULATOR_JAR")
 
 class TC2Env(gym.Env):
     def __init__(
-            self, is_eval=False, render_mode=None, reset_print_period=1, instance_suffix="",
+            self, algo: RLAlgo, is_eval=False, render_mode=None, reset_print_period=1, instance_suffix="",
             init_sim=True, max_steps=400
     ):
         super().__init__()
@@ -33,10 +34,39 @@ class TC2Env(gym.Env):
         self.is_eval = is_eval
         self.reset_print_period = reset_print_period
 
-        # Actions[0] = [steps of 1 degree from 0-359]
-        # Actions[1] = [steps of 1000 feet from min to max altitude - 2000 to FL150 for Singapore]
-        # Actions[2] = [steps of 10 knots from 160 to 250 knots (for now)]
-        self.action_space = spaces.MultiDiscrete([360, 14, 10])
+        self.action_requires_processing = False
+        if algo == RLAlgos.PPO:
+            # Actions[0] = [steps of 1 degree from 0-359]
+            # Actions[1] = [steps of 1000 feet from min to max altitude - 2000 to FL150 for Singapore]
+            # Actions[2] = [steps of 10 knots from 160 to 250 knots (for now)]
+            self.action_space = spaces.MultiDiscrete([360, 14, 10])
+        else:
+            # Actions[0] = [continuous 0-360]
+            # Actions[1] = [continuous 2000 to FL150 for Singapore]
+            # Actions[2] = [continuous 160 to 250 knots (for now)]
+            self.action_space = spaces.Box(
+                low=np.repeat(-1.0, 3),
+                high=np.repeat(1.0, 3),
+                dtype=np.float32,
+            )
+            self.action_requires_processing = True
+
+        ACT_HDG_MIN = 0
+        ACT_HDG_MAX = 360
+        ACT_ALT_MIN = 2000
+        ACT_ALT_MAX = 15000
+        ACT_SPD_MIN = 160
+        ACT_SPD_MAX = 250
+        self.action_multiplier = np.array([
+            (ACT_HDG_MAX - ACT_HDG_MIN) / 2,
+            (ACT_ALT_MAX - ACT_ALT_MIN) / 2000,
+            (ACT_SPD_MAX - ACT_SPD_MIN) / 20,
+        ])
+        self.action_adder = np.array([
+            (ACT_HDG_MIN + ACT_HDG_MAX) / 2,
+            (ACT_ALT_MIN + ACT_ALT_MAX) / 2000 - 2,
+            (ACT_SPD_MIN + ACT_SPD_MAX) / 20 - 16,
+        ])
 
         # [x, y, alt, gs, track, angular speed, vertical speed, current cleared altitude, current cleared heading, current cleared speed] normalized
         self.observation_space = spaces.Box(
@@ -99,6 +129,9 @@ class TC2Env(gym.Env):
     def normalize_sim_state(self, sim_state) -> np.ndarray:
         return (sim_state - self.state_adder) / self.state_multiplier
 
+    def convert_action(self, action) -> np.ndarray:
+        return np.rint((action * self.action_multiplier) + self.action_adder).astype(int)
+
     def reset(self, *, seed=None, options=None):
         super().reset(seed=seed)
 
@@ -134,6 +167,8 @@ class TC2Env(gym.Env):
             raise ValueError(f"[{self.instance_name}] Proceed flag must be 1")
 
         # Write action to shared memory and signal
+        if self.action_requires_processing:
+            action = self.convert_action(action)
         self.sim_bridge.write_actions(action[0], action[1], action[2])
         # print(action)
 
@@ -217,6 +252,8 @@ class MCTSState:
             )
         if self.state_type == MCTSPartialState.HDG_ALT_SELECTED:
             combined_actions = (self.hdg_action, self.alt_action, action)
+            # TODO Set simulator state then step
+
             obs, reward, terminated, _, _ = self.backing_env.step(combined_actions)
             return MCTSState(
                 self.backing_env, obs, terminated, terminal_reward, MCTSPartialState.ALL_SELECTED,
@@ -242,6 +279,9 @@ class MCTSState:
         )
 
 
-def make_env(env_id: int, auto_init_sim: bool, reset_print_period: int):
-    backing_env = TC2Env(render_mode="human", reset_print_period=reset_print_period, instance_suffix=str(env_id), init_sim=auto_init_sim)
+def make_env(env_id: int, algo: RLAlgo, auto_init_sim: bool, reset_print_period: int):
+    backing_env = TC2Env(
+        algo, render_mode="human", reset_print_period=reset_print_period, instance_suffix=str(env_id),
+        init_sim=auto_init_sim
+    )
     return backing_env

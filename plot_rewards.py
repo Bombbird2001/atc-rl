@@ -4,8 +4,8 @@ from rl_algos import RLAlgos
 from stable_baselines3.common.results_plotter import load_results, ts2xy
 
 
-algo = RLAlgos.PPO.name
-version = "random-spawn-dir-v2.3c"
+algo = RLAlgos.SAC.name
+version = "random-spawn-dir-v2.0-large-change-penalty"
 
 
 # Load Monitor logs
