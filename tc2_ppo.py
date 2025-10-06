@@ -25,7 +25,7 @@ GAMMA = 1
 DEVICE = "cpu"
 AUTO_INIT_SIM = True
 start_from_version = None
-version = "random-spawn-dir-v2.0-large-change-penalty"
+version = "random-spawn-dir-v1.0-no-obstacle"
 
 
 if not AUTO_INIT_SIM:
@@ -82,9 +82,14 @@ def run():
                                     "reset_print_period": 1,
                                 })
     obs = tc2_eval_env.reset()
+    cumulative_reward = 0
     while True:
         action, _states = model.predict(obs, deterministic=True)
         obs, reward, terminated, info = tc2_eval_env.step(action)
+        cumulative_reward += reward
+        if terminated:
+            print("Total reward:", cumulative_reward)
+            cumulative_reward = 0
 
 
 if __name__ == "__main__":

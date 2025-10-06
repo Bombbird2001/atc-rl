@@ -5,7 +5,7 @@ from stable_baselines3.common.results_plotter import load_results, ts2xy
 
 
 algo = RLAlgos.SAC.name
-version = "random-spawn-dir-v2.0-large-change-penalty"
+version = "random-spawn-dir-v1.0-no-obstacle"
 
 
 # Load Monitor logs

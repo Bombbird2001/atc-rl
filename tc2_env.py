@@ -57,6 +57,9 @@ class TC2Env(gym.Env):
         ACT_ALT_MAX = 15000
         ACT_SPD_MIN = 160
         ACT_SPD_MAX = 250
+        # Hdg: [-1, 1] to [0, 1, ..., 359]
+        # Alt: [-1, 1] to [0, 1, ..., 13]
+        # Spd: [-1, 1] to [0, 1, ..., 9]
         self.action_multiplier = np.array([
             (ACT_HDG_MAX - ACT_HDG_MIN) / 2,
             (ACT_ALT_MAX - ACT_ALT_MIN) / 2000,
