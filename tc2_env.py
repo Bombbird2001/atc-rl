@@ -106,7 +106,7 @@ class TC2Env(gym.Env):
             (CLEARED_ALT_MAX - CLEARED_ALT_MIN) / 2,
             (CLEARED_HDG_MAX - CLEARED_HDG_MIN) / 2,
             (CLEARED_SPD_MAX - CLEARED_SPD_MIN) / 2,
-        ])
+        ], dtype=np.float32)
         self.state_adder = np.array([
             (X_MAX + X_MIN) / 2, (Y_MAX + Y_MIN) / 2, (ALT_MAX + ALT_MIN) / 2,
             (GS_MAX + GS_MIN) / 2, (TRACK_MAX + TRACK_MIN) / 2,
@@ -114,7 +114,7 @@ class TC2Env(gym.Env):
             (CLEARED_ALT_MAX + CLEARED_ALT_MIN) / 2,
             (CLEARED_HDG_MAX + CLEARED_HDG_MIN) / 2,
             (CLEARED_SPD_MAX + CLEARED_SPD_MIN) / 2,
-        ])
+        ], dtype=np.float32)
 
         self.episode = 0
         self.steps = 0
@@ -194,7 +194,7 @@ class TC2Env(gym.Env):
         # Read state, reward, terminated, truncated from shared memory
         values = self.sim_bridge.get_total_state()
         # print(values[6:16])
-        obs = self.normalize_sim_state(np.array(values[6:16]))
+        obs = self.normalize_sim_state(np.array(values[6:16], dtype=np.float32))
         reward = values[4]
         terminated = values[1]
         # print(obs)

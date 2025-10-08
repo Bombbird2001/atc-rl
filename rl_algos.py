@@ -1,5 +1,6 @@
 import enum
 from stable_baselines3 import PPO, SAC
+from sb3_contrib import RecurrentPPO
 
 
 class RLAlgo:
@@ -16,3 +17,4 @@ class RLAlgo:
 class RLAlgos(enum.Enum):
     PPO = RLAlgo(PPO)
     SAC = RLAlgo(SAC)
+    PPO_LSTM = RLAlgo(RecurrentPPO)
