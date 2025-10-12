@@ -13,6 +13,14 @@ from abc import ABC, abstractmethod
 
 
 class GameBridge(ABC):
+    AIRCRAFT_COUNT = 1
+
+    # Shared region:
+    # 12 bytes constant: [proceed flag(1 byte)] [terminated(1 byte)] [action altitude(1 byte)] [action speed(1 byte)] [reward(4 bytes (1 float))] [action heading(2 bytes)] [padding(2 bytes)]
+    # + 44 bytes per aircraft: [state(44 bytes (7x floats, 3x ints, 1x bool, 3 bytes padding))]
+    FILE_SIZE = 12 + AIRCRAFT_COUNT * 44
+    STRUCT_FORMAT = "b?bbfhxx" + AIRCRAFT_COUNT * "fffffffiii?xxx"
+
     @abstractmethod
     def signal_trainer_initialized(self):
         pass
@@ -60,10 +68,6 @@ class GameBridge(ABC):
 
 
 class WindowsGameBridge(GameBridge):
-    # 52 bytes shared region: [proceed flag(1 byte)] [terminated(1 byte)] [action altitude(1 byte)] [action speed(1 byte)] [reward(4 bytes (1 float))] [action heading(2 bytes)] [padding(2 bytes)] [state(40 bytes (7x floats, 3x ints))]
-    FILE_SIZE = 52
-    STRUCT_FORMAT = "b?bbfhxxfffffffiii"
-
     def __init__(self, instance_suffix=""):
         # Create anonymous memory-mapped file with a local name
         self.mm = mmap.mmap(-1, self.__class__.FILE_SIZE, tagname=f"Local\\ATCRLSharedMem{instance_suffix}")
@@ -109,10 +113,6 @@ class WindowsGameBridge(GameBridge):
 
 
 class UnixGameBridge(GameBridge):
-    # 52 bytes shared region: [proceed flag(1 byte)] [terminated(1 byte)] [action altitude(1 byte)] [action speed(1 byte)] [reward(4 bytes (1 float))] [action heading(2 bytes)] [padding(2 bytes)] [state(40 bytes (7x floats, 3x ints))]
-    FILE_SIZE = 52
-    STRUCT_FORMAT = "b?bbfhxxfffffffiii"
-
     def __create_semaphore__(self, name):
         try:
             return posix_ipc.Semaphore(name, posix_ipc.O_CREAT, initial_value=0)

@@ -1,7 +1,7 @@
 import enum
 from stable_baselines3 import PPO, SAC
 from sb3_contrib import RecurrentPPO
-from typing import Callable, Dict
+from typing import Callable, Dict, Optional
 
 
 class RLAlgo:
@@ -16,7 +16,7 @@ class RLAlgo:
 
 
 class PPOWithLogging(PPO):
-    def __init__(self, log_stats: Callable[[Dict], None], **kwargs):
+    def __init__(self, log_stats: Optional[Callable[[Dict], None]] = None, **kwargs):
         super().__init__(**kwargs)
         self.log_stats = log_stats
 

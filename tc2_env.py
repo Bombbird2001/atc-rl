@@ -154,7 +154,7 @@ class TC2Env(gym.Env):
 
         # Get state from shared memory
         values = self.sim_bridge.get_aircraft_state()
-        obs = self.normalize_sim_state(np.array(values, dtype=np.float32))
+        obs = self.normalize_sim_state(np.array(values[:-1], dtype=np.float32))
         # print(obs)
 
         info = {}
@@ -193,7 +193,7 @@ class TC2Env(gym.Env):
 
         # Read state, reward, terminated, truncated from shared memory
         values = self.sim_bridge.get_total_state()
-        # print(values[6:16])
+        # print(values[6:17])
         obs = self.normalize_sim_state(np.array(values[6:16], dtype=np.float32))
         reward = values[4]
         terminated = values[1]
