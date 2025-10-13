@@ -2,6 +2,8 @@ import mmap
 import platform
 import struct
 
+from constants import AIRCRAFT_COUNT
+
 os_name = platform.system()
 if os_name == "Windows":
     import win32event
@@ -13,8 +15,6 @@ from abc import ABC, abstractmethod
 
 
 class GameBridge(ABC):
-    AIRCRAFT_COUNT = 1
-
     # Shared region:
     # 12 bytes constant: [proceed flag(1 byte)] [terminated(1 byte)] [action altitude(1 byte)] [action speed(1 byte)] [reward(4 bytes (1 float))] [action heading(2 bytes)] [padding(2 bytes)]
     # + 44 bytes per aircraft: [state(44 bytes (7x floats, 3x ints, 1x bool, 3 bytes padding))]

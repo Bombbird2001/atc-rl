@@ -6,6 +6,7 @@ import signal
 import random
 import subprocess
 
+from constants import AIRCRAFT_COUNT
 from game_bridge import GameBridge
 from gymnasium import spaces
 from enum import Enum
@@ -72,9 +73,10 @@ class TC2Env(gym.Env):
         ])
 
         # [x, y, alt, gs, track, angular speed, vertical speed, current cleared altitude, current cleared heading, current cleared speed] normalized
+        self.OBS_SPACE_DIMENSION = 10
         self.observation_space = spaces.Box(
-            low=np.repeat(-1.0, 10),
-            high=np.repeat(1.0, 10),
+            low=np.repeat(-1.0, self.OBS_SPACE_DIMENSION),
+            high=np.repeat(1.0, self.OBS_SPACE_DIMENSION),
             dtype=np.float32
         )
 
@@ -154,8 +156,9 @@ class TC2Env(gym.Env):
 
         # Get state from shared memory
         values = self.sim_bridge.get_aircraft_state()
-        obs = self.normalize_sim_state(np.array(values[:-1], dtype=np.float32))
+        obs = self.normalize_sim_state(np.array(values, dtype=np.float32).reshape(AIRCRAFT_COUNT, -1)[:,:self.OBS_SPACE_DIMENSION])
         # print(obs)
+        obs = obs[0]
 
         info = {}
         self.episode += 1
@@ -194,7 +197,10 @@ class TC2Env(gym.Env):
         # Read state, reward, terminated, truncated from shared memory
         values = self.sim_bridge.get_total_state()
         # print(values[6:17])
-        obs = self.normalize_sim_state(np.array(values[6:16], dtype=np.float32))
+        aircraft_state = np.array(values[6:], dtype=np.float32).reshape(AIRCRAFT_COUNT, -1)[:,:self.OBS_SPACE_DIMENSION]
+        print(aircraft_state)
+        obs = self.normalize_sim_state(aircraft_state)
+        obs = obs[0]
         reward = values[4]
         terminated = values[1]
         # print(obs)
