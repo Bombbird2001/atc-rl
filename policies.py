@@ -2,7 +2,7 @@ import torch
 import torch.nn as nn
 
 from gymnasium import spaces
-from stable_baselines3.common.policies import ActorCriticPolicy
+from stable_baselines3.common.policies import ActorCriticPolicy, BaseFeaturesExtractor
 from stable_baselines3.common.type_aliases import Schedule
 from torch import Tensor
 from typing import Tuple
@@ -30,7 +30,7 @@ class MultiAircraftTransformerNetwork(nn.Module):
         )
         # N x Shared self-attention layer with Add & Norm and FFN - outputs (batch_size, n_tokens, d_model)
         encoder_layer = nn.TransformerEncoderLayer(
-            d_model=d_model, nhead=encoder_n_heads, dim_feedforward=64, activation='gelu'
+            d_model=d_model, nhead=encoder_n_heads, dim_feedforward=64, activation='gelu', batch_first=True
         )
         self.encoder = nn.TransformerEncoder(encoder_layer, num_layers=encoder_n_layers)
 
@@ -59,8 +59,10 @@ class MultiAircraftTransformerNetwork(nn.Module):
         return self.forward_actor(x), self.forward_value(x)
 
     def forward_actor(self, x: Tensor) -> Tensor:
+        attention_mask = x[:,:,-1]
+        x = x[:,:,:-1]
         x = self.input_proj(x)
-        x = self.encoder(x)
+        x = self.encoder(x, src_key_padding_mask=attention_mask)
 
         token_select = self.token_select_net(x).squeeze()
 
@@ -70,8 +72,10 @@ class MultiAircraftTransformerNetwork(nn.Module):
         return torch.concat((token_select, action_select), dim=-1)
 
     def forward_value(self, x: Tensor) -> Tensor:
+        attention_mask = x[:,:,-1]
+        x = x[:,:,:-1]
         x = self.input_proj(x)
-        x = self.encoder(x)
+        x = self.encoder(x, src_key_padding_mask=attention_mask)
 
         # Pooling to enforce permutation invariance
         x = self._mean_pool(x)
