@@ -38,7 +38,7 @@ class MultiAircraftTransformerNetwork(nn.Module):
         self.token_select_net = nn.Sequential(
             nn.Linear(d_model, 64),
             nn.GELU(),
-            nn.Linear(64, token_selection_dim)
+            nn.Linear(64, 1)
         )
 
         # Action network
@@ -62,7 +62,7 @@ class MultiAircraftTransformerNetwork(nn.Module):
         x = self.input_proj(x)
         x = self.encoder(x)
 
-        token_select = self.token_select_net(x)
+        token_select = self.token_select_net(x).squeeze()
 
         # Pooling to enforce permutation invariance
         action_select = self._mean_pool(x)
@@ -107,8 +107,8 @@ class MultiAircraftTransformerPolicy(ActorCriticPolicy):
     def _build_mlp_extractor(self) -> None:
         self.mlp_extractor = MultiAircraftTransformerNetwork(
             input_dim=self.token_dim,
-            token_selection_dim=self.max_tokens + 1,
-            action_selection_dim_pi=self.action_space.nvec.sum() - self.max_tokens - 1
+            token_selection_dim=self.max_tokens,
+            action_selection_dim_pi=self.action_space.nvec.sum() - self.max_tokens
         )
 
     def _build(self, lr_schedule: Schedule) -> None:

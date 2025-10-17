@@ -37,10 +37,12 @@ class TC2Env(gym.Env):
 
         self.action_requires_processing = False
         if algo == RLAlgos.PPO:
-            # Actions[0] = [steps of 1 degree from 0-359]
-            # Actions[1] = [steps of 1000 feet from min to max altitude - 2000 to FL150 for Singapore]
-            # Actions[2] = [steps of 10 knots from 160 to 250 knots (for now)]
-            self.action_space = spaces.MultiDiscrete([AIRCRAFT_COUNT + 1, 360, 14, 10])
+            # Actions[0] = [aircraft 0 to 9]
+            # Actions[1] = [issue instruction or not]
+            # Actions[2] = [steps of 1 degree from 0-359]
+            # Actions[3] = [steps of 1000 feet from min to max altitude - 2000 to FL150 for Singapore]
+            # Actions[4] = [steps of 10 knots from 160 to 250 knots (for now)]
+            self.action_space = spaces.MultiDiscrete([AIRCRAFT_COUNT, 2, 360, 14, 10])
         else:
             # Actions[0] = [continuous 0-360]
             # Actions[1] = [continuous 2000 to FL150 for Singapore]
