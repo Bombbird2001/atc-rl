@@ -18,7 +18,7 @@ if ALGO == RLAlgos.SAC:
     LEARNING_RATE = 5e-4
     MIN_LR = 1e-5
     TIMESTEPS = 400_000
-    POLICY_NAME = "MlpPolicy"
+    POLICY = "MlpPolicy"
     model_kwargs = {
         "ent_coef": "auto",
         "batch_size": 256,
@@ -29,7 +29,7 @@ elif ALGO == RLAlgos.PPO:
     LEARNING_RATE = 2e-4
     MIN_LR = 5e-6
     TIMESTEPS = 50_000
-    POLICY_NAME = "MlpPolicy"
+    POLICY = "MlpPolicy"
     model_kwargs = {
         "ent_coef": 0.03,
         "n_epochs": 5,
@@ -41,7 +41,7 @@ elif ALGO == RLAlgos.PPO_LSTM:
     LEARNING_RATE = 2e-4
     MIN_LR = 1e-5
     TIMESTEPS = 1_000_000
-    POLICY_NAME = "MlpLstmPolicy"
+    POLICY = "MlpLstmPolicy"
     model_kwargs = {
         "ent_coef": 0.04,
         "n_epochs": 10,
@@ -86,7 +86,7 @@ def train():
             "learning_rate": LEARNING_RATE,
             "min_lr": MIN_LR,
             "timesteps": TIMESTEPS,
-            "policy_name": POLICY_NAME,
+            "policy_name": POLICY if isinstance(POLICY, str) else POLICY.__class__.__name__,
             **model_kwargs
         }
     )
@@ -98,7 +98,7 @@ def train():
         )
     else:
         model = algo.new(
-            policy=POLICY_NAME, env=tc2_env, verbose=1, device=DEVICE,
+            policy=POLICY, env=tc2_env, verbose=1, device=DEVICE,
             learning_rate=linear_schedule(LEARNING_RATE, MIN_LR), log_stats=wandb_run.log, **model_kwargs
         )
     start_time = time.time()
@@ -132,7 +132,7 @@ def run():
     obs = tc2_eval_env.reset()
     cumulative_reward = 0
     while True:
-        action, _states = model.predict(obs, deterministic=True)
+        action, _states = model.predict(obs[:,:10], deterministic=True)
         obs, reward, terminated, info = tc2_eval_env.step(action)
         cumulative_reward += reward
         if terminated:

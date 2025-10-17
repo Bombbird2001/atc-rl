@@ -40,11 +40,12 @@ class TC2Env(gym.Env):
             # Actions[0] = [steps of 1 degree from 0-359]
             # Actions[1] = [steps of 1000 feet from min to max altitude - 2000 to FL150 for Singapore]
             # Actions[2] = [steps of 10 knots from 160 to 250 knots (for now)]
-            self.action_space = spaces.MultiDiscrete([360, 14, 10])
+            self.action_space = spaces.MultiDiscrete([AIRCRAFT_COUNT + 1, 360, 14, 10])
         else:
             # Actions[0] = [continuous 0-360]
             # Actions[1] = [continuous 2000 to FL150 for Singapore]
             # Actions[2] = [continuous 160 to 250 knots (for now)]
+            # TODO Currently does not support selection from multiple aircraft
             self.action_space = spaces.Box(
                 low=np.repeat(-1.0, 3),
                 high=np.repeat(1.0, 3),
@@ -72,11 +73,13 @@ class TC2Env(gym.Env):
             (ACT_SPD_MIN + ACT_SPD_MAX) / 20 - 16,
         ])
 
-        # [x, y, alt, gs, track, angular speed, vertical speed, current cleared altitude, current cleared heading, current cleared speed] normalized
-        self.OBS_SPACE_DIMENSION = 10
+        # [x, y, alt, gs, track, angular speed, vertical speed,
+        # current cleared altitude, current cleared heading, current cleared speed] normalized
+        # +1 for aircraft masking
+        self.OBS_SPACE_DIMENSION = 11
         self.observation_space = spaces.Box(
-            low=np.repeat(-1.0, self.OBS_SPACE_DIMENSION),
-            high=np.repeat(1.0, self.OBS_SPACE_DIMENSION),
+            low=np.repeat(-1.0, self.OBS_SPACE_DIMENSION * AIRCRAFT_COUNT),
+            high=np.repeat(1.0, self.OBS_SPACE_DIMENSION * AIRCRAFT_COUNT),
             dtype=np.float32
         )
 
@@ -108,6 +111,7 @@ class TC2Env(gym.Env):
             (CLEARED_ALT_MAX - CLEARED_ALT_MIN) / 2,
             (CLEARED_HDG_MAX - CLEARED_HDG_MIN) / 2,
             (CLEARED_SPD_MAX - CLEARED_SPD_MIN) / 2,
+            1,
         ], dtype=np.float32)
         self.state_adder = np.array([
             (X_MAX + X_MIN) / 2, (Y_MAX + Y_MIN) / 2, (ALT_MAX + ALT_MIN) / 2,
@@ -116,6 +120,7 @@ class TC2Env(gym.Env):
             (CLEARED_ALT_MAX + CLEARED_ALT_MIN) / 2,
             (CLEARED_HDG_MAX + CLEARED_HDG_MIN) / 2,
             (CLEARED_SPD_MAX + CLEARED_SPD_MIN) / 2,
+            0,
         ], dtype=np.float32)
 
         self.episode = 0
@@ -133,6 +138,12 @@ class TC2Env(gym.Env):
 
     def normalize_sim_state(self, sim_state) -> np.ndarray:
         return (sim_state - self.state_adder) / self.state_multiplier
+
+    def get_observation_from_aircraft_state(self, aircraft_state) -> np.ndarray:
+        aircraft_state = np.array(aircraft_state, dtype=np.float32).reshape(AIRCRAFT_COUNT, -1)
+        obs = self.normalize_sim_state(aircraft_state)
+        print(obs)
+        return np.reshape(obs, (1, -1))
 
     def convert_action(self, action) -> np.ndarray:
         return np.rint((action * self.action_multiplier) + self.action_adder).astype(int)
@@ -156,9 +167,7 @@ class TC2Env(gym.Env):
 
         # Get state from shared memory
         values = self.sim_bridge.get_aircraft_state()
-        obs = self.normalize_sim_state(np.array(values, dtype=np.float32).reshape(AIRCRAFT_COUNT, -1)[:,:self.OBS_SPACE_DIMENSION])
-        # print(obs)
-        obs = obs[0]
+        obs = self.get_observation_from_aircraft_state(values)
 
         info = {}
         self.episode += 1
@@ -197,13 +206,9 @@ class TC2Env(gym.Env):
         # Read state, reward, terminated, truncated from shared memory
         values = self.sim_bridge.get_total_state()
         # print(values[6:17])
-        aircraft_state = np.array(values[6:], dtype=np.float32).reshape(AIRCRAFT_COUNT, -1)
-        # print(aircraft_state)
-        obs = self.normalize_sim_state(aircraft_state[:,:self.OBS_SPACE_DIMENSION])
-        obs = obs[0]
+        obs = self.get_observation_from_aircraft_state(values[6:])
         reward = values[4]
         terminated = values[1]
-        # print(obs)
         if terminated:
             self.terminated_count += 1
 
