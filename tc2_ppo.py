@@ -3,7 +3,9 @@ import time
 import wandb
 
 from callbacks import PPOStatsCallback
+from constants import AIRCRAFT_COUNT
 from playsound3 import playsound
+from policies import MultiAircraftTransformerPolicy
 from rl_algos import RLAlgos
 from stable_baselines3.common.env_util import make_vec_env
 from tc2_env import make_env
@@ -13,7 +15,13 @@ ALGO = RLAlgos.PPO
 algo = ALGO.value
 algo_name = ALGO.name
 TRAIN = True
-ENV_COUNT = 4
+ENV_COUNT = 1
+DEVICE = "cpu"
+AUTO_INIT_SIM = True
+start_from_version = None
+# version = f"random-spawn-dir-v1.0-no-clearance-penalty-lr-{LEARNING_RATE}-ent-coef-{ENTROPY_COEF}-steps-{TIMESTEPS}"
+version = "multi-aircraft-test"
+
 if ALGO == RLAlgos.SAC:
     LEARNING_RATE = 5e-4
     MIN_LR = 1e-5
@@ -22,19 +30,23 @@ if ALGO == RLAlgos.SAC:
     model_kwargs = {
         "ent_coef": "auto",
         "batch_size": 256,
-        "gamma": 1
+        "gamma": 0.99
     }
     STATS_LOG_INTERVAL = 100
 elif ALGO == RLAlgos.PPO:
-    LEARNING_RATE = 2e-4
-    MIN_LR = 5e-6
-    TIMESTEPS = 50_000
-    POLICY = "MlpPolicy"
+    LEARNING_RATE = 1e-4
+    MIN_LR = 2e-6
+    TIMESTEPS = 600_000
+    POLICY = MultiAircraftTransformerPolicy
     model_kwargs = {
         "ent_coef": 0.03,
         "n_epochs": 5,
         "batch_size": 64,
-        "gamma": 1
+        "gamma": 0.99,
+        "policy_kwargs": {
+            "token_dim": 11,
+            "max_tokens": AIRCRAFT_COUNT,
+        },
     }
     STATS_LOG_INTERVAL = 20
 elif ALGO == RLAlgos.PPO_LSTM:
@@ -46,21 +58,15 @@ elif ALGO == RLAlgos.PPO_LSTM:
         "ent_coef": 0.04,
         "n_epochs": 10,
         "batch_size": 128,
-        "gamma": 1
+        "gamma": 0.99
     }
     STATS_LOG_INTERVAL = 50
 else:
     raise NotImplementedError(f"Unknown policy {ALGO.name}")
-DEVICE = "cpu"
-AUTO_INIT_SIM = True
-start_from_version = None
-# version = f"random-spawn-dir-v1.0-no-clearance-penalty-lr-{LEARNING_RATE}-ent-coef-{ENTROPY_COEF}-steps-{TIMESTEPS}"
-version = "test"
 
 
 if not AUTO_INIT_SIM:
     ENV_COUNT = 1
-
 
 def linear_schedule(initial_value: float, min_lr: float):
     def func(progress_remaining: float) -> float:

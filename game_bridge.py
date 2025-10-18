@@ -16,10 +16,15 @@ from abc import ABC, abstractmethod
 
 class GameBridge(ABC):
     # Shared region:
-    # 12 bytes constant: [proceed flag(1 byte)] [terminated(1 byte)] [action altitude(1 byte)] [action speed(1 byte)] [reward(4 bytes (1 float))] [action heading(2 bytes)] [padding(2 bytes)]
-    # + 44 bytes per aircraft: [state(44 bytes (7x floats, 3x ints, 1x bool, 3 bytes padding))]
-    FILE_SIZE = 12 + AIRCRAFT_COUNT * 44
-    STRUCT_FORMAT = "b?bbfhxx" + AIRCRAFT_COUNT * "fffffffiii?xxx"
+    # 12 bytes constant: [proceed flag(1 byte)] [terminated(1 byte)] [aircraft select(1 byte)] [issue instruction(1 byte)]
+    # [action heading(2 bytes)] [action altitude(1 byte)] [action speed(1 byte)] [reward(4 bytes (1 float))]
+    # + 44 bytes per aircraft: [state(44 bytes (7x floats, 3x ints, 2x bool, 2 bytes padding))]
+    CONSTANT_FORMAT = "b?bbhbbf"
+    CONSTANT_SIZE = 12
+    PER_AIRCRAFT_FORMAT = "fffffffiii??xx"
+    PER_AIRCRAFT_SIZE = 44
+    FILE_SIZE = CONSTANT_SIZE + AIRCRAFT_COUNT * PER_AIRCRAFT_SIZE
+    STRUCT_FORMAT = CONSTANT_FORMAT + AIRCRAFT_COUNT * PER_AIRCRAFT_FORMAT
 
     @abstractmethod
     def signal_trainer_initialized(self):
@@ -50,7 +55,7 @@ class GameBridge(ABC):
         raise NotImplementedError
 
     @abstractmethod
-    def write_actions(self, hdg_action, alt_action, spd_action):
+    def write_actions(self, hdg_action, alt_action, spd_action, aircraft_select, issue_instruction):
         raise NotImplementedError
 
     @abstractmethod
@@ -100,13 +105,14 @@ class WindowsGameBridge(GameBridge):
 
     def get_aircraft_state(self) -> tuple:
         self.mm.seek(12)
-        return struct.unpack(self.__class__.STRUCT_FORMAT[8:], self.mm.read(self.__class__.FILE_SIZE - 12))
+        return struct.unpack(
+            self.__class__.STRUCT_FORMAT[len(self.__class__.CONSTANT_FORMAT):],
+            self.mm.read(self.__class__.FILE_SIZE - self.__class__.CONSTANT_SIZE)
+        )
 
-    def write_actions(self, hdg_action, alt_action, spd_action):
+    def write_actions(self, hdg_action, alt_action, spd_action, aircraft_select, issue_instruction):
         self.mm.seek(2)
-        self.mm.write(struct.pack("bb",alt_action, spd_action))
-        self.mm.seek(8)
-        self.mm.write(struct.pack("h",hdg_action))
+        self.mm.write(struct.pack("bbhbb",aircraft_select, issue_instruction, hdg_action, alt_action, spd_action))
 
     def close(self):
         self.mm.close()
@@ -157,13 +163,14 @@ class UnixGameBridge(GameBridge):
 
     def get_aircraft_state(self) -> tuple:
         self.mm.seek(12)
-        return struct.unpack(self.__class__.STRUCT_FORMAT[8:], self.mm.read(self.__class__.FILE_SIZE - 12))
+        return struct.unpack(
+            self.__class__.STRUCT_FORMAT[len(self.__class__.CONSTANT_FORMAT):],
+            self.mm.read(self.__class__.FILE_SIZE - self.__class__.CONSTANT_SIZE)
+        )
 
-    def write_actions(self, hdg_action, alt_action, spd_action):
+    def write_actions(self, hdg_action, alt_action, spd_action, aircraft_select, issue_instruction):
         self.mm.seek(2)
-        self.mm.write(struct.pack("bb",alt_action, spd_action))
-        self.mm.seek(8)
-        self.mm.write(struct.pack("h",hdg_action))
+        self.mm.write(struct.pack("bbhbb",aircraft_select, issue_instruction, hdg_action, alt_action, spd_action))
 
     def close(self):
         self.mm.close()

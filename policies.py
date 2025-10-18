@@ -2,7 +2,7 @@ import torch
 import torch.nn as nn
 
 from gymnasium import spaces
-from stable_baselines3.common.policies import ActorCriticPolicy, BaseFeaturesExtractor
+from stable_baselines3.common.policies import ActorCriticPolicy
 from stable_baselines3.common.type_aliases import Schedule
 from torch import Tensor
 from typing import Tuple
@@ -14,12 +14,14 @@ class MultiAircraftTransformerNetwork(nn.Module):
                  token_selection_dim: int,
                  action_selection_dim_pi: int,
                  d_model: int = 32,
-                 encoder_n_heads: int = 2,
+                 encoder_n_heads: int = 4,
                  encoder_n_layers: int = 2
                  ):
         super().__init__()
 
         # Needed by SB3 to create distributions
+        self.input_dim = input_dim
+        self.token_selection_dim = token_selection_dim
         self.latent_dim_pi = token_selection_dim + action_selection_dim_pi
         self.latent_dim_vf = 64
 
@@ -56,30 +58,38 @@ class MultiAircraftTransformerNetwork(nn.Module):
         )
 
     def forward(self, x: Tensor) -> Tuple[Tensor, Tensor]:
-        return self.forward_actor(x), self.forward_value(x)
+        return self.forward_actor(x), self.forward_critic(x)
 
     def forward_actor(self, x: Tensor) -> Tensor:
-        attention_mask = x[:,:,-1]
-        x = x[:,:,:-1]
+        x, attention_mask = self._extract_features(x)
+        if x.shape[0] == 1 and attention_mask.all().item() and not self.training:
+            return torch.zeros(1, self.latent_dim_pi)
         x = self.input_proj(x)
         x = self.encoder(x, src_key_padding_mask=attention_mask)
 
-        token_select = self.token_select_net(x).squeeze()
+        token_select = self.token_select_net(x).squeeze(-1)
 
         # Pooling to enforce permutation invariance
         action_select = self._mean_pool(x)
         action_select = self.action_net(action_select)
         return torch.concat((token_select, action_select), dim=-1)
 
-    def forward_value(self, x: Tensor) -> Tensor:
-        attention_mask = x[:,:,-1]
-        x = x[:,:,:-1]
+    def forward_critic(self, x: Tensor) -> Tensor:
+        x, attention_mask = self._extract_features(x)
+        if x.shape[0] == 1 and attention_mask.all().item() and not self.training:
+            return torch.Tensor([0])
         x = self.input_proj(x)
         x = self.encoder(x, src_key_padding_mask=attention_mask)
 
         # Pooling to enforce permutation invariance
         x = self._mean_pool(x)
         return self.value_net(x)
+
+    def _extract_features(self, x: Tensor) -> Tuple[Tensor, Tensor]:
+        x = x.reshape(-1, self.token_selection_dim, self.input_dim + 1)
+        attention_mask = x[:,:,-1]
+        x = x[:,:,:-1]
+        return x, attention_mask
 
     @staticmethod
     def _mean_pool(x: Tensor) -> Tensor:
@@ -103,8 +113,8 @@ class MultiAircraftTransformerPolicy(ActorCriticPolicy):
         self.token_dim = token_dim
         self.max_tokens = max_tokens
 
-        if self.token_dim * (self.max_tokens + 1) != observation_space.shape[0]:
-            raise ValueError(f"Observation space shape {observation_space.shape[0]} does not match (token_dim * (max_tokens + 1)) = {self.token_dim} * {self.max_tokens}")
+        if (self.token_dim + 1) * self.max_tokens != observation_space.shape[0]:
+            raise ValueError(f"Observation space shape {observation_space.shape[0]} does not match (token_dim * (max_tokens + 1)) = {self.token_dim} * {self.max_tokens + 1}")
 
         super().__init__(observation_space, action_space, lr_schedule, *args, **kwargs)
 

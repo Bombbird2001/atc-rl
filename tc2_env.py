@@ -76,9 +76,9 @@ class TC2Env(gym.Env):
         ])
 
         # [x, y, alt, gs, track, angular speed, vertical speed,
-        # current cleared altitude, current cleared heading, current cleared speed] normalized
+        # current cleared altitude, current cleared heading, current cleared speed, localizer captured] normalized
         # +1 for aircraft masking
-        self.OBS_SPACE_DIMENSION = 11
+        self.OBS_SPACE_DIMENSION = 12
         self.observation_space = spaces.Box(
             low=np.repeat(-1.0, self.OBS_SPACE_DIMENSION * AIRCRAFT_COUNT),
             high=np.repeat(1.0, self.OBS_SPACE_DIMENSION * AIRCRAFT_COUNT),
@@ -113,6 +113,7 @@ class TC2Env(gym.Env):
             (CLEARED_ALT_MAX - CLEARED_ALT_MIN) / 2,
             (CLEARED_HDG_MAX - CLEARED_HDG_MIN) / 2,
             (CLEARED_SPD_MAX - CLEARED_SPD_MIN) / 2,
+            0.5,
             1,
         ], dtype=np.float32)
         self.state_adder = np.array([
@@ -122,6 +123,7 @@ class TC2Env(gym.Env):
             (CLEARED_ALT_MAX + CLEARED_ALT_MIN) / 2,
             (CLEARED_HDG_MAX + CLEARED_HDG_MIN) / 2,
             (CLEARED_SPD_MAX + CLEARED_SPD_MIN) / 2,
+            0.5,
             0,
         ], dtype=np.float32)
 
@@ -144,7 +146,7 @@ class TC2Env(gym.Env):
     def get_observation_from_aircraft_state(self, aircraft_state) -> np.ndarray:
         aircraft_state = np.array(aircraft_state, dtype=np.float32).reshape(AIRCRAFT_COUNT, -1)
         obs = self.normalize_sim_state(aircraft_state)
-        print(obs)
+        # print(obs)
         return np.reshape(obs, (1, -1))
 
     def convert_action(self, action) -> np.ndarray:
@@ -186,7 +188,7 @@ class TC2Env(gym.Env):
         # Write action to shared memory and signal
         if self.action_requires_processing:
             action = self.convert_action(action)
-        self.sim_bridge.write_actions(action[0], action[1], action[2])
+        self.sim_bridge.write_actions(action[2], action[3], action[4], action[0], action[1])
         # print(action)
 
         # Set the reset request flag before signalling action done
@@ -208,8 +210,8 @@ class TC2Env(gym.Env):
         # Read state, reward, terminated, truncated from shared memory
         values = self.sim_bridge.get_total_state()
         # print(values[6:17])
-        obs = self.get_observation_from_aircraft_state(values[6:])
-        reward = values[4]
+        obs = self.get_observation_from_aircraft_state(values[8:])
+        reward = values[7]
         terminated = values[1]
         if terminated:
             self.terminated_count += 1
