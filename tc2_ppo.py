@@ -4,6 +4,7 @@ import wandb
 
 from callbacks import PPOStatsCallback
 from constants import AIRCRAFT_COUNT
+from datetime import datetime
 from playsound3 import playsound
 from policies import MultiAircraftTransformerPolicy
 from rl_algos import RLAlgos
@@ -14,13 +15,6 @@ from tc2_env import make_env
 ALGO = RLAlgos.PPO
 algo = ALGO.value
 algo_name = ALGO.name
-TRAIN = True
-ENV_COUNT = 1
-DEVICE = "cpu"
-AUTO_INIT_SIM = True
-start_from_version = None
-# version = f"random-spawn-dir-v1.0-no-clearance-penalty-lr-{LEARNING_RATE}-ent-coef-{ENTROPY_COEF}-steps-{TIMESTEPS}"
-version = "multi-aircraft-test"
 
 if ALGO == RLAlgos.SAC:
     LEARNING_RATE = 5e-4
@@ -65,6 +59,18 @@ else:
     raise NotImplementedError(f"Unknown policy {ALGO.name}")
 
 
+TRAIN = False
+ENV_COUNT = 1
+DEVICE = "cpu"
+AUTO_INIT_SIM = True
+start_from_version = None
+version = f"multi-aircraft-transformer-{datetime.now().strftime("%Y-%m-%d_%H-%M-%S")}-lr-{LEARNING_RATE}-ent-coef-{model_kwargs['ent_coef']}-steps-{TIMESTEPS}"
+additional_description = f"""No clearance penalty
+No max offset angle for LOC capture"""
+# version = "multi-aircraft-test"
+eval_version = "multi-aircraft-transformer-2025-10-19_13-43-58-lr-0.0001-ent-coef-0.03-steps-800000"
+
+
 if not AUTO_INIT_SIM:
     ENV_COUNT = 1
 
@@ -87,7 +93,10 @@ def train():
 
     wandb_run = wandb.init(
         project=os.getenv("WANDB_PROJECT"),
+        name=f"{algo_name}-{version}",
         config={
+            "description": additional_description,
+            "started_from_version": start_from_version,
             "env_count": ENV_COUNT,
             "learning_rate": LEARNING_RATE,
             "min_lr": MIN_LR,
@@ -96,6 +105,9 @@ def train():
             **model_kwargs
         }
     )
+
+    with open(f"./{algo_name}/logs/{version}/desc.txt", "w") as f:
+        f.write(additional_description)
 
     if start_from_version is not None:
         model = algo.load(
@@ -126,7 +138,7 @@ def train():
 
 
 def run():
-    model = algo.load(path=f"{algo_name}/{algo_name}_tc2_{version}", device="cpu")
+    model = algo.load(path=f"{algo_name}/{algo_name}_tc2_{eval_version}", device="cpu")
     print("Model loaded")
 
     tc2_eval_env = make_vec_env(make_env, n_envs=1,
@@ -138,7 +150,7 @@ def run():
     obs = tc2_eval_env.reset()
     cumulative_reward = 0
     while True:
-        action, _states = model.predict(obs[:,:10], deterministic=True)
+        action, _states = model.predict(obs, deterministic=True)
         obs, reward, terminated, info = tc2_eval_env.step(action)
         cumulative_reward += reward
         if terminated:
