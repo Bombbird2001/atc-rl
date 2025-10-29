@@ -28,9 +28,9 @@ if ALGO == RLAlgos.SAC:
     }
     STATS_LOG_INTERVAL = 100
 elif ALGO == RLAlgos.PPO:
-    LEARNING_RATE = 1e-4
-    MIN_LR = 2e-6
-    TIMESTEPS = 600_000
+    LEARNING_RATE = 7.5e-5
+    MIN_LR = LEARNING_RATE * 0.1
+    TIMESTEPS = 200_000
     POLICY = MultiAircraftTransformerPolicy
     model_kwargs = {
         "ent_coef": 0.03,
@@ -68,7 +68,7 @@ version = f"multi-aircraft-transformer-{datetime.now().strftime("%Y-%m-%d_%H-%M-
 additional_description = f"""No clearance penalty
 No max offset angle for LOC capture"""
 # version = "multi-aircraft-test"
-eval_version = "multi-aircraft-transformer-2025-10-19_13-43-58-lr-0.0001-ent-coef-0.03-steps-800000"
+eval_version = "multi-aircraft-transformer-2025-10-29_14-59-18-lr-7.5e-05-ent-coef-0.03-steps-200000"
 
 
 if not AUTO_INIT_SIM:
@@ -101,7 +101,7 @@ def train():
             "learning_rate": LEARNING_RATE,
             "min_lr": MIN_LR,
             "timesteps": TIMESTEPS,
-            "policy_name": POLICY if isinstance(POLICY, str) else POLICY.__class__.__name__,
+            "policy_name": POLICY if isinstance(POLICY, str) else POLICY.__name__,
             **model_kwargs
         }
     )
@@ -138,7 +138,7 @@ def train():
 
 
 def run():
-    model = algo.load(path=f"{algo_name}/{algo_name}_tc2_{eval_version}", device="cpu")
+    model = algo.load(path=f"{algo_name}/{algo_name}_tc2_{eval_version}", device="cpu", log_stats=lambda x: None)
     print("Model loaded")
 
     tc2_eval_env = make_vec_env(make_env, n_envs=1,

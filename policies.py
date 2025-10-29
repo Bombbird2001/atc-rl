@@ -13,10 +13,10 @@ class MultiAircraftTransformerNetwork(nn.Module):
                  input_dim: int,
                  token_selection_dim: int,
                  action_selection_dim_pi: int,
-                 d_model: int = 32,
-                 encoder_n_heads: int = 4,
-                 encoder_n_layers: int = 2
-                 ):
+                 d_model: int = 64,
+                 encoder_n_heads: int = 8,
+                 encoder_n_layers: int = 3
+        ):
         super().__init__()
 
         # Needed by SB3 to create distributions
@@ -87,7 +87,7 @@ class MultiAircraftTransformerNetwork(nn.Module):
 
     def _extract_features(self, x: Tensor) -> Tuple[Tensor, Tensor]:
         x = x.reshape(-1, self.token_selection_dim, self.input_dim + 1)
-        attention_mask = x[:,:,-1]
+        attention_mask = 1 - x[:,:,-1]  # In TransformerEncoderLayer, 1 is used for non-existent tokens
         x = x[:,:,:-1]
         return x, attention_mask
 

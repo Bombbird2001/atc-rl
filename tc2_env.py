@@ -1,10 +1,12 @@
 import gymnasium as gym
 import numpy as np
 import os
+import pandas as pd
 import platform
-import signal
 import random
+import signal
 import subprocess
+import torch
 
 from constants import AIRCRAFT_COUNT
 from game_bridge import GameBridge
@@ -20,7 +22,7 @@ SIMULATOR_JAR = os.getenv("SIMULATOR_JAR")
 class TC2Env(gym.Env):
     def __init__(
             self, algo: RLAlgo, is_eval=False, render_mode=None, reset_print_period=1, instance_suffix="",
-            init_sim=True, max_steps=400
+            init_sim=True, max_steps=300
     ):
         super().__init__()
 
@@ -42,7 +44,7 @@ class TC2Env(gym.Env):
             # Actions[2] = [steps of 1 degree from 0-359]
             # Actions[3] = [steps of 1000 feet from min to max altitude - 2000 to FL150 for Singapore]
             # Actions[4] = [steps of 10 knots from 160 to 250 knots (for now)]
-            self.action_space = spaces.MultiDiscrete([AIRCRAFT_COUNT, 2, 360, 14, 10])
+            self.action_space = spaces.MultiDiscrete([AIRCRAFT_COUNT, 360, 14, 10])
         else:
             # Actions[0] = [continuous 0-360]
             # Actions[1] = [continuous 2000 to FL150 for Singapore]
@@ -133,6 +135,8 @@ class TC2Env(gym.Env):
         self.terminated_count = 0
         self.render_mode = render_mode
 
+        self.action_dist = []
+
         print(f"[{self.instance_name}] Environment initialized")
 
         if init_sim:
@@ -167,6 +171,14 @@ class TC2Env(gym.Env):
                 print(f"[{self.instance_name}] {self.terminated_count} / {self.reset_print_period} episodes terminated before max_steps")
             print(f"[{self.instance_name}] Waiting for action ready after reset: episode {self.episode}")
             self.terminated_count = 0
+
+            # Print distribution stats
+            if self.action_dist:
+                counts = pd.DataFrame(self.action_dist).apply(lambda x: x.value_counts(), axis=0).fillna(0).to_numpy()
+                action_top_k = torch.tensor(counts).topk(min(5, len(counts)), dim=0)
+                print(action_top_k.indices)
+                print(action_top_k.values / len(self.action_dist))
+            self.action_dist.clear()
         self.sim_bridge.wait_action_ready()
 
         # Get state from shared memory
@@ -188,7 +200,8 @@ class TC2Env(gym.Env):
         # Write action to shared memory and signal
         if self.action_requires_processing:
             action = self.convert_action(action)
-        self.sim_bridge.write_actions(action[2], action[3], action[4], action[0], action[1])
+        self.action_dist.append(action)
+        self.sim_bridge.write_actions(action[1], action[2], action[3], action[0], True)
         # print(action)
 
         # Set the reset request flag before signalling action done
