@@ -62,8 +62,8 @@ class MultiAircraftTransformerNetwork(nn.Module):
 
     def forward_actor(self, x: Tensor) -> Tensor:
         x, attention_mask = self._extract_features(x)
-        if x.shape[0] == 1 and attention_mask.all().item() and not self.training:
-            return torch.zeros(1, self.latent_dim_pi)
+        # if x.shape[0] == 1 and attention_mask.all().item() and not self.training:
+        #     return torch.zeros(1, self.latent_dim_pi)
         x = self.input_proj(x)
         x = self.encoder(x, src_key_padding_mask=attention_mask)
 
@@ -76,8 +76,8 @@ class MultiAircraftTransformerNetwork(nn.Module):
 
     def forward_critic(self, x: Tensor) -> Tensor:
         x, attention_mask = self._extract_features(x)
-        if x.shape[0] == 1 and attention_mask.all().item() and not self.training:
-            return torch.Tensor([0])
+        # if x.shape[0] == 1 and attention_mask.all().item() and not self.training:
+        #     return torch.Tensor([0])
         x = self.input_proj(x)
         x = self.encoder(x, src_key_padding_mask=attention_mask)
 

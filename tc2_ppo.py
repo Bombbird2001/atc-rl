@@ -29,20 +29,21 @@ if ALGO == RLAlgos.SAC:
     STATS_LOG_INTERVAL = 100
 elif ALGO == RLAlgos.PPO:
     LEARNING_RATE = 7.5e-5
-    MIN_LR = LEARNING_RATE * 0.1
+    MIN_LR = LEARNING_RATE * 0.2
     TIMESTEPS = 200_000
     POLICY = MultiAircraftTransformerPolicy
     model_kwargs = {
-        "ent_coef": 0.03,
+        "ent_coef": 0.01,
         "n_epochs": 5,
-        "batch_size": 64,
+        "n_steps": 256,
+        "batch_size": 1024,
         "gamma": 0.99,
         "policy_kwargs": {
             "token_dim": 11,
             "max_tokens": AIRCRAFT_COUNT,
         },
     }
-    STATS_LOG_INTERVAL = 20
+    STATS_LOG_INTERVAL = 3
 elif ALGO == RLAlgos.PPO_LSTM:
     LEARNING_RATE = 2e-4
     MIN_LR = 1e-5
@@ -59,16 +60,20 @@ else:
     raise NotImplementedError(f"Unknown policy {ALGO.name}")
 
 
-TRAIN = False
-ENV_COUNT = 1
+TRAIN = True
+ENV_COUNT = 128
 DEVICE = "cpu"
 AUTO_INIT_SIM = True
 start_from_version = None
 version = f"multi-aircraft-transformer-{datetime.now().strftime("%Y-%m-%d_%H-%M-%S")}-lr-{LEARNING_RATE}-ent-coef-{model_kwargs['ent_coef']}-steps-{TIMESTEPS}"
-additional_description = f"""No clearance penalty
-No max offset angle for LOC capture"""
+additional_description = f"""Random spawn location
+No clearance penalty
+No conflict enforcement
+Max offset angle 80 degrees for LOC capture
+Altitude below G/S for LOC capture
+No max IAS for LOC capture"""
 # version = "multi-aircraft-test"
-eval_version = "multi-aircraft-transformer-2025-10-29_14-59-18-lr-7.5e-05-ent-coef-0.03-steps-200000"
+eval_version = "multi-aircraft-transformer-2025-11-01_21-50-28-lr-0.0001-ent-coef-0.03-steps-600000"
 
 
 if not AUTO_INIT_SIM:

@@ -75,14 +75,14 @@ class GameBridge(ABC):
 class WindowsGameBridge(GameBridge):
     def __init__(self, instance_suffix=""):
         # Create anonymous memory-mapped file with a local name
-        self.mm = mmap.mmap(-1, self.__class__.FILE_SIZE, tagname=f"Local\\ATCRLSharedMem{instance_suffix}")
+        self.mm = mmap.mmap(-1, self.__class__.FILE_SIZE, tagname=f"Local\\ATCSharedMem{instance_suffix}")
 
         # Named events for synchronization
-        self.trainer_initialized = win32event.CreateEvent(None, False, False, f"Local\\ATCRLTrainerInit{instance_suffix}")
-        self.reset_sim = win32event.CreateEvent(None, False, False, f"Local\\ATCRLResetEvent{instance_suffix}")
-        self.action_ready = win32event.CreateEvent(None, False, False, f"Local\\ATCRLActionReadyEvent{instance_suffix}")
-        self.action_done = win32event.CreateEvent(None, False, False, f"Local\\ATCRLActionDoneEvent{instance_suffix}")
-        self.reset_after_step = win32event.CreateEvent(None, False, False, f"Local\\ATCRLResetAfterEvent{instance_suffix}")
+        self.trainer_initialized = win32event.CreateEvent(None, False, False, f"Local\\ATCTrainerInit{instance_suffix}")
+        self.reset_sim = win32event.CreateEvent(None, False, False, f"Local\\ATCResetEvent{instance_suffix}")
+        self.action_ready = win32event.CreateEvent(None, False, False, f"Local\\ATCActionReadyEvent{instance_suffix}")
+        self.action_done = win32event.CreateEvent(None, False, False, f"Local\\ATCActionDoneEvent{instance_suffix}")
+        self.reset_after_step = win32event.CreateEvent(None, False, False, f"Local\\ATCResetAfterEvent{instance_suffix}")
 
     def signal_trainer_initialized(self):
         win32event.SetEvent(self.trainer_initialized)
@@ -128,19 +128,19 @@ class UnixGameBridge(GameBridge):
 
     def __init__(self, instance_suffix=""):
         try:
-            self.shm = posix_ipc.SharedMemory(f"ATCRLSharedMem{instance_suffix}", posix_ipc.O_CREX, size=self.__class__.FILE_SIZE)
+            self.shm = posix_ipc.SharedMemory(f"ATCSharedMem{instance_suffix}", posix_ipc.O_CREX, size=self.__class__.FILE_SIZE)
         except posix_ipc.ExistentialError:
-            posix_ipc.unlink_shared_memory(f"ATCRLSharedMem{instance_suffix}")
-            self.shm = posix_ipc.SharedMemory(f"ATCRLSharedMem{instance_suffix}", posix_ipc.O_CREX, size=self.__class__.FILE_SIZE)
+            posix_ipc.unlink_shared_memory(f"ATCSharedMem{instance_suffix}")
+            self.shm = posix_ipc.SharedMemory(f"ATCSharedMem{instance_suffix}", posix_ipc.O_CREX, size=self.__class__.FILE_SIZE)
 
         self.mm = mmap.mmap(self.shm.fd, self.shm.size)
         self.shm.close_fd()
 
-        self.trainer_initialized = self.__create_semaphore__(f"ATCRLTrainerInit{instance_suffix}")
-        self.reset_sim = self.__create_semaphore__(f"ATCRLResetEvent{instance_suffix}")
-        self.action_ready = self.__create_semaphore__(f"ATCRLActionReadyEvent{instance_suffix}")
-        self.action_done = self.__create_semaphore__(f"ATCRLActionDoneEvent{instance_suffix}")
-        self.reset_after_step = self.__create_semaphore__(f"ATCRLResetAfterEvent{instance_suffix}")
+        self.trainer_initialized = self.__create_semaphore__(f"ATCTrainerInit{instance_suffix}")
+        self.reset_sim = self.__create_semaphore__(f"ATCResetEvent{instance_suffix}")
+        self.action_ready = self.__create_semaphore__(f"ATCActionReadyEvent{instance_suffix}")
+        self.action_done = self.__create_semaphore__(f"ATCActionDoneEvent{instance_suffix}")
+        self.reset_after_step = self.__create_semaphore__(f"ATCResetAfterEvent{instance_suffix}")
 
     def signal_trainer_initialized(self):
         self.trainer_initialized.release()
