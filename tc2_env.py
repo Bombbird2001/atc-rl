@@ -8,11 +8,13 @@ import signal
 import subprocess
 import torch
 
+from common.data_preprocessing import AC_FAMILY_MAPPING
 from constants import AIRCRAFT_COUNT
 from game_bridge import GameBridge
 from gymnasium import spaces
 from enum import Enum
 from rl_algos import RLAlgo, RLAlgos
+from sklearn.preprocessing import OneHotEncoder
 from typing import List, Optional
 
 
@@ -21,7 +23,7 @@ SIMULATOR_JAR = os.getenv("SIMULATOR_JAR")
 
 class TC2Env(gym.Env):
     def __init__(
-            self, algo: RLAlgo, is_eval=False, render_mode=None, reset_print_period=1, instance_suffix="",
+            self, algo: RLAlgo, ac_type_one_hot_encoder: OneHotEncoder, is_eval=False, render_mode=None, reset_print_period=1, instance_suffix="",
             init_sim=True, max_steps=300
     ):
         super().__init__()
@@ -77,57 +79,16 @@ class TC2Env(gym.Env):
             (ACT_SPD_MIN + ACT_SPD_MAX) / 20 - 16,
         ])
 
-        # [x, y, alt, gs, track, angular speed, vertical speed,
+        # [aircraft type, x, y, alt, gs, track, angular speed, vertical speed,
         # current cleared altitude, current cleared heading, current cleared speed, localizer captured] normalized
         # +1 for aircraft masking
-        self.OBS_SPACE_DIMENSION = 12
+        self.OBS_SPACE_DIMENSION = 33
         self.observation_space = spaces.Box(
             low=np.repeat(-1.0, self.OBS_SPACE_DIMENSION * AIRCRAFT_COUNT),
             high=np.repeat(1.0, self.OBS_SPACE_DIMENSION * AIRCRAFT_COUNT),
             dtype=np.float32
         )
-
-        X_MIN = -2000
-        X_MAX = 2000
-        Y_MIN = -2000
-        Y_MAX = 2000
-        ALT_MIN = 0
-        ALT_MAX = 36000
-        GS_MIN = 0
-        GS_MAX = 600
-        TRACK_MIN = 0
-        TRACK_MAX = 360
-        ANG_SPD_MIN = -4
-        ANG_SPD_MAX = 4
-        VERT_SPD_MIN = -7000
-        VERT_SPD_MAX = 7000
-        CLEARED_ALT_MIN = 2000
-        CLEARED_ALT_MAX = 15000
-        CLEARED_HDG_MIN = 0
-        CLEARED_HDG_MAX = 360
-        CLEARED_SPD_MIN = 160
-        CLEARED_SPD_MAX = 250
-
-        self.state_multiplier = np.array([
-            (X_MAX - X_MIN) / 2, (Y_MAX - Y_MIN) / 2, (ALT_MAX - ALT_MIN) / 2,
-            (GS_MAX - GS_MIN) / 2, (TRACK_MAX - TRACK_MIN) / 2,
-            (ANG_SPD_MAX - ANG_SPD_MIN) / 2, (VERT_SPD_MAX - VERT_SPD_MIN) / 2,
-            (CLEARED_ALT_MAX - CLEARED_ALT_MIN) / 2,
-            (CLEARED_HDG_MAX - CLEARED_HDG_MIN) / 2,
-            (CLEARED_SPD_MAX - CLEARED_SPD_MIN) / 2,
-            0.5,
-            1,
-        ], dtype=np.float32)
-        self.state_adder = np.array([
-            (X_MAX + X_MIN) / 2, (Y_MAX + Y_MIN) / 2, (ALT_MAX + ALT_MIN) / 2,
-            (GS_MAX + GS_MIN) / 2, (TRACK_MAX + TRACK_MIN) / 2,
-            (ANG_SPD_MAX + ANG_SPD_MIN) / 2, (VERT_SPD_MAX + VERT_SPD_MIN) / 2,
-            (CLEARED_ALT_MAX + CLEARED_ALT_MIN) / 2,
-            (CLEARED_HDG_MAX + CLEARED_HDG_MIN) / 2,
-            (CLEARED_SPD_MAX + CLEARED_SPD_MIN) / 2,
-            0.5,
-            0,
-        ], dtype=np.float32)
+        self.ac_type_one_hot_encoder = ac_type_one_hot_encoder
 
         self.episode = 0
         self.steps = 0
@@ -143,15 +104,29 @@ class TC2Env(gym.Env):
             print(f"[{self.instance_name}] Starting simulator")
             self.sim_process = subprocess.Popen(f"java -jar \"{SIMULATOR_JAR}\" {instance_suffix}", shell=True)
 
-
-    def normalize_sim_state(self, sim_state) -> np.ndarray:
-        return (sim_state - self.state_adder) / self.state_multiplier
-
     def get_observation_from_aircraft_state(self, aircraft_state) -> np.ndarray:
-        aircraft_state = np.array(aircraft_state, dtype=np.float32).reshape(AIRCRAFT_COUNT, -1)
-        obs = self.normalize_sim_state(aircraft_state)
-        # print(obs)
-        return np.reshape(obs, (1, -1))
+        tmp_state = np.array(aircraft_state).reshape(AIRCRAFT_COUNT, -1)
+        # print(tmp_state)
+        ac_types = np.array(tmp_state[:,:4], dtype=np.str_)
+        ac_types = [[AC_FAMILY_MAPPING.get(ac_type, "Unknown")] for ac_type in (ac_types[:,0] + ac_types[:,1] + ac_types[:,2] + ac_types[:,3])]
+        ac_type_one_hot = self.ac_type_one_hot_encoder.transform(ac_types).toarray()
+        # Map
+        # ICAO type, x, y, alt, ias, track, track rate, vertical speed, cleared alt, cleared hdg, cleared IAS, LOC cap, mask
+        # to
+        # ["ias", "track_rate", "x", "y", "combined_alt", "combined_alt_rate", "track_x", "track_y", "prev_cleared_hdg_x", "prev_cleared_hdg_y",
+        # "prev_cleared_alt", "prev_cleared_ias"] + [f"aircraft_type_{j}" for j in range(aircraft_category_count)] + mask
+        ac_state = np.array(tmp_state[:,4:], dtype=np.float32)
+        # print(ac_state[0])
+        combined_ac_state = np.hstack((
+            (ac_state[:,[3, 5, 0, 1, 2, 6]] - np.array([220, 0, 0, 0, 0, 0])) / np.array([100, 3, 1000, 1000, 16000, 3000]),
+            np.sin(np.radians(ac_state[:,[4]])), np.cos(np.radians(ac_state[:,[4]])),
+            np.sin(np.radians(ac_state[:,[8]])), np.cos(np.radians(ac_state[:,[8]])),
+            (ac_state[:,[7, 9]] - np.array([0, 220])) / np.array([16000, 100]),
+            ac_type_one_hot,
+            ac_state[:,[11]]
+        ))
+        # print(combined_ac_state.shape)
+        return combined_ac_state.reshape(1, -1)
 
     def convert_action(self, action) -> np.ndarray:
         return np.rint((action * self.action_multiplier) + self.action_adder).astype(int)
@@ -200,8 +175,8 @@ class TC2Env(gym.Env):
         # Write action to shared memory and signal
         if self.action_requires_processing:
             action = self.convert_action(action)
-        self.action_dist.append(action)
-        self.sim_bridge.write_actions(action[1], action[2], action[3], action[0], True)
+        # self.action_dist.append(action)
+        self.sim_bridge.write_actions(action)
         # print(action)
 
         # Set the reset request flag before signalling action done
@@ -222,9 +197,9 @@ class TC2Env(gym.Env):
 
         # Read state, reward, terminated, truncated from shared memory
         values = self.sim_bridge.get_total_state()
-        # print(values[6:17])
-        obs = self.get_observation_from_aircraft_state(values[8:])
-        reward = values[7]
+        # print(values[3 + AIRCRAFT_COUNT * 4:])
+        obs = self.get_observation_from_aircraft_state(values[3 + AIRCRAFT_COUNT * 4:])
+        reward = values[2]
         terminated = values[1]
         if terminated:
             self.terminated_count += 1
@@ -310,9 +285,13 @@ class MCTSState:
         )
 
 
-def make_env(env_id: int, algo: RLAlgo, auto_init_sim: bool, reset_print_period: int):
+def make_env(
+        env_id: int, algo: RLAlgo, ac_type_one_hot_encoder: OneHotEncoder,
+        auto_init_sim: bool, reset_print_period: int
+):
     backing_env = TC2Env(
-        algo, render_mode="human", reset_print_period=reset_print_period, instance_suffix=str(env_id),
+        algo, ac_type_one_hot_encoder=ac_type_one_hot_encoder, render_mode="human",
+        reset_print_period=reset_print_period, instance_suffix=str(env_id),
         init_sim=auto_init_sim
     )
     return backing_env

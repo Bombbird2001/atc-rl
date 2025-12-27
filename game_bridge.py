@@ -16,15 +16,19 @@ from abc import ABC, abstractmethod
 
 class GameBridge(ABC):
     # Shared region:
-    # 12 bytes constant: [proceed flag(1 byte)] [terminated(1 byte)] [aircraft select(1 byte)] [issue instruction(1 byte)]
-    # [action heading(2 bytes)] [action altitude(1 byte)] [action speed(1 byte)] [reward(4 bytes (1 float))]
-    # + 44 bytes per aircraft: [state(44 bytes (7x floats, 3x ints, 2x bool, 2 bytes padding))]
-    CONSTANT_FORMAT = "b?bbhbbf"
-    CONSTANT_SIZE = 12
-    PER_AIRCRAFT_FORMAT = "fffffffiii??xx"
-    PER_AIRCRAFT_SIZE = 44
-    FILE_SIZE = CONSTANT_SIZE + AIRCRAFT_COUNT * PER_AIRCRAFT_SIZE
-    STRUCT_FORMAT = CONSTANT_FORMAT + AIRCRAFT_COUNT * PER_AIRCRAFT_FORMAT
+    # 8 bytes constant: [proceed flag(1 byte)] [terminated(1 byte)] [2 bytes padding] [reward(4 bytes (1 float))]
+    # 6 bytes per instruction: [action heading(2 bytes)] [action altitude(1 byte)] [action speed(1 byte)] [validity(1 byte)] [1 byte padding]
+    # + 44 bytes per aircraft: [state(44 bytes (7x floats, 3x ints, 2x byte (for bool), 2 bytes padding))]
+    CONSTANT_FORMAT = "b?xxf"
+    CONSTANT_SIZE = 8
+    PER_INSTRUCTION_FORMAT = "hbbbx"
+    PER_INSTRUCTION_SIZE = 6
+    PER_AIRCRAFT_FORMAT = "ccccfffffffiiibbxx"
+    PER_AIRCRAFT_SIZE = 48
+    ADDITIONAL_PADDING_FORMAT = "xx"
+    ADDITIONAL_PADDING_SIZE = 2
+    FILE_SIZE = CONSTANT_SIZE + AIRCRAFT_COUNT * PER_INSTRUCTION_SIZE + ADDITIONAL_PADDING_SIZE + AIRCRAFT_COUNT * PER_AIRCRAFT_SIZE
+    STRUCT_FORMAT = CONSTANT_FORMAT + AIRCRAFT_COUNT * PER_INSTRUCTION_FORMAT + ADDITIONAL_PADDING_FORMAT + AIRCRAFT_COUNT * PER_AIRCRAFT_FORMAT
 
     @abstractmethod
     def signal_trainer_initialized(self):
@@ -55,7 +59,7 @@ class GameBridge(ABC):
         raise NotImplementedError
 
     @abstractmethod
-    def write_actions(self, hdg_action, alt_action, spd_action, aircraft_select, issue_instruction):
+    def write_actions(self, aircraft_instructions):
         raise NotImplementedError
 
     @abstractmethod
@@ -104,15 +108,19 @@ class WindowsGameBridge(GameBridge):
         return struct.unpack(self.__class__.STRUCT_FORMAT, self.mm.read(self.__class__.FILE_SIZE))
 
     def get_aircraft_state(self) -> tuple:
-        self.mm.seek(12)
+        state_size = self.__class__.PER_AIRCRAFT_SIZE * AIRCRAFT_COUNT
+        state_start = self.__class__.FILE_SIZE - state_size
+        # print(state_size)
+        # print(state_start)
+        self.mm.seek(state_start)
         return struct.unpack(
-            self.__class__.STRUCT_FORMAT[len(self.__class__.CONSTANT_FORMAT):],
-            self.mm.read(self.__class__.FILE_SIZE - self.__class__.CONSTANT_SIZE)
+            self.__class__.STRUCT_FORMAT[len(self.__class__.CONSTANT_FORMAT) + AIRCRAFT_COUNT * len(self.__class__.PER_INSTRUCTION_FORMAT) + len(self.__class__.ADDITIONAL_PADDING_FORMAT):],
+            self.mm.read(state_size)
         )
 
-    def write_actions(self, hdg_action, alt_action, spd_action, aircraft_select, issue_instruction):
-        self.mm.seek(2)
-        self.mm.write(struct.pack("bbhbb",aircraft_select, issue_instruction, hdg_action, alt_action, spd_action))
+    def write_actions(self, aircraft_instructions):
+        self.mm.seek(self.__class__.CONSTANT_SIZE)
+        self.mm.write(struct.pack(AIRCRAFT_COUNT * self.__class__.PER_INSTRUCTION_FORMAT,*aircraft_instructions))
 
     def close(self):
         self.mm.close()

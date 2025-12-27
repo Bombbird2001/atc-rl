@@ -1,15 +1,20 @@
+import joblib
+import numpy as np
 import os
 import time
+import torch
 import wandb
 
 from callbacks import PPOStatsCallback
 from constants import AIRCRAFT_COUNT
 from datetime import datetime
+from models.encoders import WSSSAPP02Encoder
 from playsound3 import playsound
 from policies import MultiAircraftTransformerPolicy
 from rl_algos import RLAlgos
 from stable_baselines3.common.env_util import make_vec_env
 from tc2_env import make_env
+from typing import Tuple
 
 
 ALGO = RLAlgos.PPO
@@ -60,7 +65,7 @@ else:
     raise NotImplementedError(f"Unknown policy {ALGO.name}")
 
 
-TRAIN = True
+TRAIN = False
 ENV_COUNT = 128
 DEVICE = "cpu"
 AUTO_INIT_SIM = True
@@ -142,25 +147,55 @@ def train():
     playsound("sounds/alert.mp3")
 
 
+def tokenize(obs: np.ndarray) -> Tuple[torch.Tensor, torch.Tensor]:
+    obs = torch.Tensor(obs).reshape((1, AIRCRAFT_COUNT, -1))
+
+    return obs[:,:,:-1], obs[:,:,-1]
+
+
 def run():
-    model = algo.load(path=f"{algo_name}/{algo_name}_tc2_{eval_version}", device="cpu", log_stats=lambda x: None)
+    NODE_FEATURE_DIM = 32
+    D_MODEL = 32
+    N_HEAD = 4
+    N_LAYERS = 3
+
+    model = WSSSAPP02Encoder(NODE_FEATURE_DIM, D_MODEL, N_HEAD, N_LAYERS, AIRCRAFT_COUNT)
+    model.load_state_dict(torch.load("C:\\IdeaProjects\\atc-rl-adsbexchange\\trained_models\\encoder-32-4-3_linear1_Adam_lr-0.005_batch_32_epochs-25_2025-12-27_070557\\14.pt"))
+    model.eval()
+    # print(model)
     print("Model loaded")
 
     tc2_eval_env = make_vec_env(make_env, n_envs=1,
                                 env_kwargs={
                                     "algo": ALGO,
+                                    "ac_type_one_hot_encoder": joblib.load("common/ac_type_one_hot_encoder.joblib"),
                                     "auto_init_sim": False,
                                     "reset_print_period": 1,
                                 })
     obs = tc2_eval_env.reset()
     cumulative_reward = 0
     while True:
-        action, _states = model.predict(obs, deterministic=True)
-        obs, reward, terminated, info = tc2_eval_env.step(action)
-        cumulative_reward += reward
-        if terminated:
-            print("Total reward:", cumulative_reward)
-            cumulative_reward = 0
+        with torch.no_grad():
+            x, attention_mask = tokenize(obs)
+            # print(x[0], attention_mask)
+            action = model(x, attention_mask)
+            # print(action, attention_mask)
+            action = action.squeeze(0)[attention_mask.squeeze(0).to(torch.int32) == 1]
+            # print(action)
+            action = torch.hstack((action[:,:72].argmax(axis=1).unsqueeze(-1), action[:,72:])).numpy()
+            # print(action)
+            action[:,0] = action[:,0]
+            action[:,1] = np.round(action[:,1] * 16)
+            action[:,2] = np.round(action[:,2] * 10 + 22)
+            action = np.hstack((action, np.ones((action.shape[0], 1))))
+            action = np.vstack((action, np.zeros((AIRCRAFT_COUNT - action.shape[0], action.shape[1]))))
+            action = action.reshape(1, -1).astype(np.int32)
+            # print(action)
+            obs, reward, terminated, info = tc2_eval_env.step(action)
+            cumulative_reward += reward
+            if terminated:
+                print("Total reward:", cumulative_reward)
+                cumulative_reward = 0
 
 
 if __name__ == "__main__":
