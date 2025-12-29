@@ -1,20 +1,20 @@
 import joblib
-import numpy as np
 import os
 import time
 import torch
 import wandb
 
 from callbacks import PPOStatsCallback
+from common.data_preprocessing import TransformerProcessor, GNNProcessor
 from constants import AIRCRAFT_COUNT
 from datetime import datetime
 from models.encoders import WSSSAPP02Encoder
+from models.gnns import WSSSAPP02GINE
 from playsound3 import playsound
 from policies import MultiAircraftTransformerPolicy
 from rl_algos import RLAlgos
 from stable_baselines3.common.env_util import make_vec_env
 from tc2_env import make_env
-from typing import Tuple
 
 
 ALGO = RLAlgos.PPO
@@ -147,20 +147,23 @@ def train():
     playsound("sounds/alert.mp3")
 
 
-def tokenize(obs: np.ndarray) -> Tuple[torch.Tensor, torch.Tensor]:
-    obs = torch.Tensor(obs).reshape((1, AIRCRAFT_COUNT, -1))
-
-    return obs[:,:,:-1], obs[:,:,-1]
-
-
 def run():
     NODE_FEATURE_DIM = 32
-    D_MODEL = 32
-    N_HEAD = 4
-    N_LAYERS = 3
 
-    model = WSSSAPP02Encoder(NODE_FEATURE_DIM, D_MODEL, N_HEAD, N_LAYERS, AIRCRAFT_COUNT)
-    model.load_state_dict(torch.load("C:\\IdeaProjects\\atc-rl-adsbexchange\\trained_models\\encoder-32-4-3_linear1_Adam_lr-0.005_batch_32_epochs-25_2025-12-27_070557\\14.pt"))
+    # GINE only
+    EDGE_FEATURE_DIM = 2
+
+    # Transformer only
+    # D_MODEL = 32
+    # N_HEAD = 1
+    # N_LAYERS = 3
+
+    # processor = TransformerProcessor()
+    processor = GNNProcessor()
+
+    # model = WSSSAPP02Encoder(NODE_FEATURE_DIM, D_MODEL, N_HEAD, N_LAYERS, AIRCRAFT_COUNT)
+    model = WSSSAPP02GINE(NODE_FEATURE_DIM, EDGE_FEATURE_DIM)
+    model.load_state_dict(torch.load("C:\\IdeaProjects\\atc-rl-adsbexchange\\trained_models\\gine1_linear1_Adam_lr-0.01_batch_32_epochs-20_2025-12-24_130131\\18.pt"))
     model.eval()
     # print(model)
     print("Model loaded")
@@ -176,20 +179,15 @@ def run():
     cumulative_reward = 0
     while True:
         with torch.no_grad():
-            x, attention_mask = tokenize(obs)
+            # x, attention_mask = processor.preprocess_data(obs)
             # print(x[0], attention_mask)
-            action = model(x, attention_mask)
-            # print(action, attention_mask)
-            action = action.squeeze(0)[attention_mask.squeeze(0).to(torch.int32) == 1]
-            # print(action)
-            action = torch.hstack((action[:,:72].argmax(axis=1).unsqueeze(-1), action[:,72:])).numpy()
-            # print(action)
-            action[:,0] = action[:,0]
-            action[:,1] = np.round(action[:,1] * 16)
-            action[:,2] = np.round(action[:,2] * 10 + 22)
-            action = np.hstack((action, np.ones((action.shape[0], 1))))
-            action = np.vstack((action, np.zeros((AIRCRAFT_COUNT - action.shape[0], action.shape[1]))))
-            action = action.reshape(1, -1).astype(np.int32)
+            # action = model(x, attention_mask)
+            # action = processor.postprocess_data(action, attention_mask)
+
+            x = processor.preprocess_data(obs)
+            # print(x)
+            action = model(x.x, x.edge_index, x.edge_attr)
+            action = processor.postprocess_data(action)
             # print(action)
             obs, reward, terminated, info = tc2_eval_env.step(action)
             cumulative_reward += reward
