@@ -163,7 +163,7 @@ def run():
 
     # model = WSSSAPP02Encoder(NODE_FEATURE_DIM, D_MODEL, N_HEAD, N_LAYERS, AIRCRAFT_COUNT)
     model = WSSSAPP02GINE(NODE_FEATURE_DIM, EDGE_FEATURE_DIM)
-    model.load_state_dict(torch.load("C:\\IdeaProjects\\atc-rl-adsbexchange\\trained_models\\gine1_linear1_Adam_lr-0.01_batch_32_epochs-20_2025-12-24_130131\\18.pt"))
+    model.load_state_dict(torch.load("C:\\IdeaProjects\\atc-rl-adsbexchange\\trained_models\\feat32_gine1_linear1_Adam_lr-0.01_batch_32_epochs-25_2025-12-30_112300\\15.pt"))
     model.eval()
     # print(model)
     print("Model loaded")

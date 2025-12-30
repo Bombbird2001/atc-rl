@@ -69,7 +69,7 @@ class TransformerProcessor(DataProcessor):
         action[:,0] = action[:,0]
         action[:,1] = np.round(action[:,1] * 16)
         action[:,2] = np.round(action[:,2] * 10 + 22)
-        action = np.hstack((action, np.ones((action.shape[0], 1))))
+        action = np.hstack((action, action[:,3:6].any(axis=1, keepdims=True)))
         action = np.vstack((action, np.zeros((AIRCRAFT_COUNT - action.shape[0], action.shape[1]))))
 
         return action.reshape(1, -1).astype(np.int32)
@@ -113,7 +113,7 @@ class GNNProcessor(DataProcessor):
         action[:,0] = action[:,0]
         action[:,1] = np.round(action[:,1] * 16)
         action[:,2] = np.round(action[:,2] * 10 + 22)
-        action = np.hstack((action, np.ones((action.shape[0], 1))))
+        action = np.hstack((action[:,:3], action[:,3:6].any(axis=1, keepdims=True)))
         action = np.vstack((action, np.zeros((AIRCRAFT_COUNT - action.shape[0], action.shape[1]))))
 
         return action.reshape(1, -1).astype(np.int32)
