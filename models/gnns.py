@@ -1,3 +1,4 @@
+import torch
 import torch.nn.functional as F
 from constants import HDG_BINS
 from torch.nn import Module, Linear, LayerNorm, GELU, Sequential
@@ -44,3 +45,21 @@ class WSSSAPP02GINE(Module):
     @property
     def name(self):
         return f"gine1_linear1"
+
+
+class WSSSAPP02ValueNet(Module):
+    def __init__(self):
+        super().__init__()
+
+        self.linear = Linear(32, 1)
+
+    def forward(self, x: torch.Tensor):
+        # Global average pooling
+        h = x.mean(dim=0)
+        h = self.linear(h)
+
+        return h
+
+    @property
+    def name(self):
+        return f"linear1"

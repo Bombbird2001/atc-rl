@@ -128,7 +128,6 @@ class GNNProcessor(DataProcessor):
     def postprocess_data_multi_aircraft(self, action: torch.Tensor) -> np.ndarray:
         # print(action)
         action = torch.hstack((action[:,:72].argmax(dim=1).unsqueeze(-1), action[:,72:74], action[:,74:77].sigmoid() >= 0.5)).numpy()
-        # print(action)
         action[:,0] = action[:,0]
         action[:,1] = np.round(action[:,1] * 16).clip(2, 15)
         action[:,2] = np.round(action[:,2] * 10 + 22).clip(16, 25)
@@ -137,13 +136,10 @@ class GNNProcessor(DataProcessor):
 
         return action.reshape(1, -1).astype(np.int32)
 
-    def postprocess_data(self, action: torch.Tensor) -> np.ndarray:
+    def postprocess_data(self, action: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
+        # We want to return raw logits for each row, and the max logit for hdg/alt/spd
+        # clearance changed for each of the (up to) 15 aircraft
         # print(action)
-        action = torch.hstack((action[:,:72].argmax(dim=1).unsqueeze(-1), action[:,72:])).numpy()
-        action[:,0] = action[:,0]
-        action[:,1] = np.round(action[:,1] * 16).clip(2, 15)
-        action[:,2] = np.round(action[:,2] * 10 + 22).clip(16, 25)
-        action = np.hstack((action[:,:3], action[:,3:6].any(axis=1, keepdims=True)))
-        action = np.vstack((action, np.zeros((AIRCRAFT_COUNT - action.shape[0], action.shape[1]))))
+        class_logits = torch.hstack((torch.zeros(1), action[:,74:].max(dim=1).values))
 
-        return action.reshape(1, -1).astype(np.int32)
+        return class_logits, action[:,:74]
