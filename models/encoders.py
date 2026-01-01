@@ -1,7 +1,5 @@
+from constants import HDG_BINS
 from torch.nn import Module, Sequential, Linear, GELU, TransformerEncoder, TransformerEncoderLayer, BatchNorm1d
-
-
-HDG_BINS = 360 // 5
 
 
 class WSSSAPP02Encoder(Module):

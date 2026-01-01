@@ -9,7 +9,9 @@ import subprocess
 import torch
 
 from common.data_preprocessing import AC_FAMILY_MAPPING
-from constants import AIRCRAFT_COUNT
+from constants import AIRCRAFT_COUNT, SPD_BIAS, SPD_SCALE_DOWN, \
+    TRACK_RATE_SCALE_DOWN, X_Y_SCALE_DOWN, PX_PER_NM, ALT_SCALE_DOWN, \
+    ALT_RATE_SCALE_DOWN
 from game_bridge import GameBridge
 from gymnasium import spaces
 from enum import Enum
@@ -41,12 +43,11 @@ class TC2Env(gym.Env):
 
         self.action_requires_processing = False
         if algo == RLAlgos.PPO:
-            # Actions[0] = [aircraft 0 to 9]
-            # Actions[1] = [issue instruction or not]
-            # Actions[2] = [steps of 5 degrees from 0-359]
-            # Actions[3] = [steps of 1000 feet from min to max altitude - 2000 to FL150 for Singapore]
-            # Actions[4] = [steps of 10 knots from 160 to 250 knots (for now)]
-            self.action_space = spaces.MultiDiscrete([AIRCRAFT_COUNT, 72, 14, 10])
+            # Actions[0] = [aircraft 0 to 14, or no clearance (value = 0)]
+            # Actions[1] = [steps of 5 degrees from 0-359]
+            # Actions[2] = [steps of 1000 feet from min to max altitude - 2000 to FL150 for Singapore]
+            # Actions[3] = [steps of 10 knots from 160 to 250 knots (for now)]
+            self.action_space = spaces.MultiDiscrete([1 + AIRCRAFT_COUNT, 72, 14, 10])
         else:
             # Actions[0] = [continuous 0-360]
             # Actions[1] = [continuous 2000 to FL150 for Singapore]
@@ -118,10 +119,11 @@ class TC2Env(gym.Env):
         ac_state = np.array(tmp_state[:,4:], dtype=np.float32)
         # print(ac_state[0])
         combined_ac_state = np.hstack((
-            (ac_state[:,[3, 5, 0, 1, 2, 6]] - np.array([220, 0, 0, 0, 0, 0])) / np.array([100, 3, 1000, 1000, 16000, 3000]),
+            (ac_state[:,[3, 5, 0, 1, 2, 6]] - np.array([SPD_BIAS, 0, 0, 0, 0, 0]))
+            / np.array([SPD_SCALE_DOWN, TRACK_RATE_SCALE_DOWN, X_Y_SCALE_DOWN * PX_PER_NM, X_Y_SCALE_DOWN * PX_PER_NM, ALT_SCALE_DOWN, ALT_RATE_SCALE_DOWN]),
             np.sin(np.radians(ac_state[:,[4]])), np.cos(np.radians(ac_state[:,[4]])),
             np.sin(np.radians(ac_state[:,[8]])), np.cos(np.radians(ac_state[:,[8]])),
-            (ac_state[:,[7, 9]] - np.array([0, 220])) / np.array([16000, 100]),
+            (ac_state[:,[7, 9]] - np.array([0, SPD_BIAS])) / np.array([ALT_SCALE_DOWN, SPD_SCALE_DOWN]),
             ac_type_one_hot,
             ac_state[:,[11]]
         ))
@@ -175,9 +177,18 @@ class TC2Env(gym.Env):
         # Write action to shared memory and signal
         if self.action_requires_processing:
             action = self.convert_action(action)
-        # self.action_dist.append(action)
-        self.sim_bridge.write_actions(action)
+        self.action_dist.append(action)
+
+        # Convert action to new format (at least temporarily)
+        # Action is length (1 + 72 + 2)
         # print(action)
+        # if action[0] == 0:
+        #     expanded_action = (np.zeros(4 * AIRCRAFT_COUNT))
+        # else:
+        #     expanded_action = np.hstack((np.zeros((action[0] - 1) * np.zeros(4)), np.array([action[1], action[2] - 2, action[3] - 16, 1]), np.zeros((AIRCRAFT_COUNT - 1 - action[0]) * np.zeros(4))))
+        # print(expanded_action)
+
+        self.sim_bridge.write_actions(action)
 
         # Set the reset request flag before signalling action done
         # The next time the game loop finishes simulating 300 frames, it will stop the update till reset() is called here

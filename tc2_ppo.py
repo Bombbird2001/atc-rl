@@ -184,10 +184,9 @@ def run():
             # action = model(x, attention_mask)
             # action = processor.postprocess_data(action, attention_mask)
 
-            x = processor.preprocess_data(obs)
-            # print(x)
-            action = model(x.x, x.edge_index, x.edge_attr)
-            action = processor.postprocess_data(action)
+            x = processor.preprocess_data(torch.Tensor(obs))
+            action = model(x.x, x.edge_index, x.edge_attr)[0]
+            action = processor.postprocess_data_multi_aircraft(action)
             # print(action)
             obs, reward, terminated, info = tc2_eval_env.step(action)
             cumulative_reward += reward

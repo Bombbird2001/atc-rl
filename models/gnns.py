@@ -1,9 +1,7 @@
 import torch.nn.functional as F
+from constants import HDG_BINS
 from torch.nn import Module, Linear, LayerNorm, GELU, Sequential
 from torch_geometric.nn import GINEConv
-
-
-HDG_BINS = 360 // 5
 
 
 class WSSSAPP02GINE(Module):
@@ -34,12 +32,14 @@ class WSSSAPP02GINE(Module):
         h = self.gine1(x, edge_index, edge_attr)
         h = self.ln1(h)
         h = F.gelu(h)
+        latent = h
         # h = self.gine2(h, edge_index, edge_attr)
         # h = self.ln2(h)
         # h = F.gelu(h)
         h = self.linear(h)
 
-        return h
+        # Also return latent representation to pass to separate value/critic net
+        return h, latent
 
     @property
     def name(self):
