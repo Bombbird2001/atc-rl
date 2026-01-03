@@ -1,7 +1,7 @@
 import numpy as np
 import torch
 from abc import ABC, abstractmethod
-from constants import AIRCRAFT_COUNT, X_Y_SCALE_DOWN, ALT_SCALE_DOWN
+from common.constants import AIRCRAFT_COUNT, X_Y_SCALE_DOWN, ALT_SCALE_DOWN, HDG_BINS, ALT_BINS, SPD_BINS
 from torch import Tensor
 from torch_geometric.data import Data
 from typing import Tuple
@@ -43,6 +43,46 @@ AC_FAMILY_MAPPING = {
     "GLEX": "GLEX",
     "FA8X": "FA8X",
     "CL60": "CL60",
+    None: "Unknown",
+}
+
+
+RECAT_MAPPING = {
+    "B737": "D",
+    "B738": "D",
+    "B739": "D",
+    "A359": "B",
+    "A35K": "B",
+    "B752": "C",
+    "B772": "B",
+    "B773": "B",
+    "B77W": "B",
+    "B77L": "B",
+    "B788": "B",
+    "B789": "B",
+    "B78X": "B",
+    "A319": "D",
+    "A320": "D",
+    "A321": "D",
+    "A21N": "D",
+    "A20N": "D",
+    "B744": "B",
+    "B748": "B",
+    "A388": "A",
+    "A333": "B",
+    "A332": "B",
+    "A339": "B",
+    "B733": "E",
+    "B734": "E",
+    "B763": "C",
+    "B38M": "D",
+    "E290": "D",
+    "E295": "D",
+    "GLF4": "E",
+    "GLF6": "E",
+    "GLEX": "E",
+    "FA8X": "E",
+    "CL60": "E",
     None: "Unknown",
 }
 
@@ -139,7 +179,6 @@ class GNNProcessor(DataProcessor):
     def postprocess_data(self, action: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
         # We want to return raw logits for each row, and the max logit for hdg/alt/spd
         # clearance changed for each of the (up to) 15 aircraft
-        # print(action)
-        class_logits = torch.hstack((torch.zeros(1), action[:,74:].max(dim=1).values))
+        class_logits = torch.hstack((torch.zeros(1), action[:,HDG_BINS + ALT_BINS + SPD_BINS:].max(dim=1).values))
 
-        return class_logits, action[:,:74]
+        return class_logits, action[:,:HDG_BINS + ALT_BINS + SPD_BINS]

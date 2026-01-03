@@ -4,19 +4,17 @@ import os
 import time
 import torch
 import wandb
-
-from callbacks import PPOStatsCallback
-from common.data_preprocessing import TransformerProcessor, GNNProcessor
-from constants import AIRCRAFT_COUNT, TEST_DATA
+from common.data_preprocessing import GNNProcessor
+from common.constants import AIRCRAFT_COUNT, TEST_DATA
 from datetime import datetime
 from gymnasium import spaces
-from models.encoders import WSSSAPP02Encoder
 from models.gnns import WSSSAPP02GINE
 from playsound3 import playsound
 from policies import MultiAircraftTransformerPolicy, MultiAircraftGNNPolicy
 from rl_algos import RLAlgos
 from stable_baselines3.common.env_util import make_vec_env
 from tc2_env import make_env
+from utils.callbacks import PPOStatsCallback
 
 
 ALGO = RLAlgos.PPO
@@ -150,7 +148,7 @@ def train():
 
 
 def run():
-    NODE_FEATURE_DIM = 32
+    NODE_FEATURE_DIM = 18
 
     # GINE only
     EDGE_FEATURE_DIM = 2
@@ -165,7 +163,7 @@ def run():
 
     # model = WSSSAPP02Encoder(NODE_FEATURE_DIM, D_MODEL, N_HEAD, N_LAYERS, AIRCRAFT_COUNT)
     model = WSSSAPP02GINE(NODE_FEATURE_DIM, EDGE_FEATURE_DIM)
-    model.load_state_dict(torch.load("C:\\IdeaProjects\\atc-rl-adsbexchange\\trained_models\\feat32_gine1_linear1_Adam_lr-0.01_batch_32_epochs-25_2025-12-30_112300\\15.pt"))
+    model.load_state_dict(torch.load("/Users/bombbird2001/Desktop/atc-rl-adsbexchange/trained_models/feat18_gine1_linear1_Adam_lr-0.005_batch_32_epochs-50_2026-01-03_151939/23.pt"))
     model.eval()
     # print(model)
     print("Model loaded")
@@ -173,7 +171,7 @@ def run():
     tc2_eval_env = make_vec_env(make_env, n_envs=1,
                                 env_kwargs={
                                     "algo": ALGO,
-                                    "ac_type_one_hot_encoder": joblib.load("common/ac_type_one_hot_encoder.joblib"),
+                                    "ac_type_one_hot_encoder": joblib.load("common/recat_one_hot_encoder.joblib"),
                                     "auto_init_sim": False,
                                     "reset_print_period": 1,
                                 })
@@ -186,7 +184,7 @@ def run():
             # action = model(x, attention_mask)
             # action = processor.postprocess_data(action, attention_mask)
 
-            print(torch.Tensor(obs))
+            # print(torch.Tensor(obs))
             x = processor.preprocess_data(torch.Tensor(obs))
             action = model(x.x, x.edge_index, x.edge_attr)[0]
             action = processor.postprocess_data(action)
@@ -211,7 +209,7 @@ if __name__ == "__main__":
             high=np.repeat(1.0, 33 * AIRCRAFT_COUNT),
             dtype=np.float32
         ), spaces.MultiDiscrete([1 + AIRCRAFT_COUNT, 72, 14, 10]),
-        32, 2, lambda x: 1,
-        "C:\\IdeaProjects\\atc-rl-adsbexchange\\trained_models\\feat32_gine1_linear1_Adam_lr-0.01_batch_32_epochs-25_2025-12-30_112300\\15.pt"
+        18, 2, lambda x: 1,
+        "/Users/bombbird2001/Desktop/atc-rl-adsbexchange/trained_models/feat18_gine1_linear1_Adam_lr-0.005_batch_32_epochs-50_2026-01-03_151939/23.pt"
     )
     print(policy.forward(TEST_DATA, deterministic=False))

@@ -1,4 +1,4 @@
-from constants import HDG_BINS
+from common.constants import HDG_BINS
 from torch.nn import Module, Sequential, Linear, GELU, TransformerEncoder, TransformerEncoderLayer, BatchNorm1d
 
 

@@ -1,6 +1,6 @@
 import torch
 import torch.nn.functional as F
-from constants import HDG_BINS
+from common.constants import HDG_BINS, ALT_BINS, SPD_BINS
 from torch.nn import Module, Linear, LayerNorm, GELU, Sequential
 from torch_geometric.nn import GINEConv
 
@@ -26,8 +26,8 @@ class WSSSAPP02GINE(Module):
         # self.gine2 = GINEConv(nn2, edge_dim=edge_feature_count, train_eps=True)
         self.ln1 = LayerNorm(32)
         # self.ln2 = LayerNorm(16)
-        # 3 outputs for probability of changing each clearance, 72 bins for heading, 1 output for altitude, 1 output for speed
-        self.linear = Linear(32, 3 + HDG_BINS + 1 + 1)
+        # 3 outputs for probability of changing each clearance, 72 bins for heading, 14 bins for altitude, 10 bins for speed
+        self.linear = Linear(32, 3 + HDG_BINS + ALT_BINS + SPD_BINS)
 
     def forward(self, x, edge_index, edge_attr):
         h = self.gine1(x, edge_index, edge_attr)

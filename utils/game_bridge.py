@@ -1,17 +1,15 @@
 import mmap
 import platform
 import struct
+from abc import ABC, abstractmethod
+from common.constants import AIRCRAFT_COUNT
 
-from constants import AIRCRAFT_COUNT
 
 os_name = platform.system()
 if os_name == "Windows":
     import win32event
 elif os_name == "Darwin" or os_name == "Linux":
     import posix_ipc
-
-
-from abc import ABC, abstractmethod
 
 
 class GameBridge(ABC):
@@ -110,8 +108,6 @@ class WindowsGameBridge(GameBridge):
     def get_aircraft_state(self) -> tuple:
         state_size = self.__class__.PER_AIRCRAFT_SIZE * AIRCRAFT_COUNT
         state_start = self.__class__.FILE_SIZE - state_size
-        # print(state_size)
-        # print(state_start)
         self.mm.seek(state_start)
         return struct.unpack(
             self.__class__.STRUCT_FORMAT[len(self.__class__.CONSTANT_FORMAT) + AIRCRAFT_COUNT * len(self.__class__.PER_INSTRUCTION_FORMAT) + len(self.__class__.ADDITIONAL_PADDING_FORMAT):],
@@ -170,15 +166,17 @@ class UnixGameBridge(GameBridge):
         return struct.unpack(self.__class__.STRUCT_FORMAT, self.mm.read(self.__class__.FILE_SIZE))
 
     def get_aircraft_state(self) -> tuple:
-        self.mm.seek(12)
+        state_size = self.__class__.PER_AIRCRAFT_SIZE * AIRCRAFT_COUNT
+        state_start = self.__class__.FILE_SIZE - state_size
+        self.mm.seek(state_start)
         return struct.unpack(
-            self.__class__.STRUCT_FORMAT[len(self.__class__.CONSTANT_FORMAT):],
-            self.mm.read(self.__class__.FILE_SIZE - self.__class__.CONSTANT_SIZE)
+            self.__class__.STRUCT_FORMAT[len(self.__class__.CONSTANT_FORMAT) + AIRCRAFT_COUNT * len(self.__class__.PER_INSTRUCTION_FORMAT) + len(self.__class__.ADDITIONAL_PADDING_FORMAT):],
+            self.mm.read(state_size)
         )
 
-    def write_actions(self, hdg_action, alt_action, spd_action, aircraft_select, issue_instruction):
-        self.mm.seek(2)
-        self.mm.write(struct.pack("bbhbb",aircraft_select, issue_instruction, hdg_action, alt_action, spd_action))
+    def write_actions(self, aircraft_instructions):
+        self.mm.seek(self.__class__.CONSTANT_SIZE)
+        self.mm.write(struct.pack(AIRCRAFT_COUNT * self.__class__.PER_INSTRUCTION_FORMAT,*aircraft_instructions))
 
     def close(self):
         self.mm.close()

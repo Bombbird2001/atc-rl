@@ -6,7 +6,7 @@ from common.data_preprocessing import GNNProcessor
 from gymnasium import spaces
 from models.gnns import WSSSAPP02GINE, WSSSAPP02ValueNet
 from models.old_models import MultiAircraftTransformerNetwork
-from stable_baselines3.common.distributions import DiagGaussianDistribution, CategoricalDistribution
+from stable_baselines3.common.distributions import CategoricalDistribution, MultiCategoricalDistribution
 from stable_baselines3.common.policies import ActorCriticPolicy
 from stable_baselines3.common.type_aliases import Schedule, PyTorchObs
 from typing import Optional
@@ -90,8 +90,7 @@ class MultiAircraftGNNPolicy(ActorCriticPolicy):
 
     def _init_distributions(self, action_space: spaces.Space):
         self.aircraft_dist = CategoricalDistribution(action_space.nvec[0])
-        self.hdg_dist = CategoricalDistribution(action_space.nvec[1])
-        self.alt_spd_dist = DiagGaussianDistribution(2)
+        self.hdg_alt_spd_dist = MultiCategoricalDistribution(list(action_space.nvec[1:]))
 
     def forward(self, obs: th.Tensor, deterministic: bool = False) -> tuple[th.Tensor, th.Tensor, th.Tensor]:
         x = self.feature_processor.preprocess_data(obs)
@@ -101,20 +100,19 @@ class MultiAircraftGNNPolicy(ActorCriticPolicy):
         ac_dist = self.aircraft_dist.proba_distribution(aircraft_logits)
         # print(ac_dist.distribution.probs)
         ac_index = ac_dist.get_actions(deterministic=deterministic)
-        actions = torch.Tensor([ac_index, 0, 0, 0])
+        actions = torch.Tensor([ac_index])
         log_prob = ac_dist.log_prob(ac_index)
 
+        sub_actions = torch.zeros(3)
         if actions[0] >= 1:
-            hdg_dist = self.aircraft_dist.proba_distribution(action_logits[ac_index - 1, :72])
-            # print(hdg_dist.distribution.probs)
-            hdg_index = hdg_dist.get_actions(deterministic=deterministic)
-            actions[1] = hdg_index
-            log_prob += hdg_dist.log_prob(hdg_index)
+            combined_dist = self.hdg_alt_spd_dist.proba_distribution(action_logits[ac_index - 1].unsqueeze(0))
+            # for dist in combined_dist.distribution:
+            #     print(dist.probs)
+            hdg_alt_spd_actions = combined_dist.get_actions(deterministic=deterministic)
+            sub_actions = hdg_alt_spd_actions.squeeze()
+            log_prob += combined_dist.log_prob(hdg_alt_spd_actions).squeeze()
 
-            # TODO Add the log_probs for continuous variables (needs Gaussian distribution)
-            # Integrate over bin range, then divide over integration over valid range [-1, 1]
-            alt_spd_dist = self.alt_spd_dist.proba_distribution(action_logits[ac_index - 1, 72:], self.log_std)
-            alt_spd = alt_spd_dist.get_actions(deterministic=deterministic)
+        actions = torch.hstack((actions, sub_actions))
 
         values = self.value_net(latent_rep)
 

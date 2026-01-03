@@ -7,17 +7,16 @@ import random
 import signal
 import subprocess
 import torch
-
-from common.data_preprocessing import AC_FAMILY_MAPPING
-from constants import AIRCRAFT_COUNT, SPD_BIAS, SPD_SCALE_DOWN, \
+from common.constants import AIRCRAFT_COUNT, SPD_BIAS, SPD_SCALE_DOWN, \
     TRACK_RATE_SCALE_DOWN, X_Y_SCALE_DOWN, PX_PER_NM, ALT_SCALE_DOWN, \
-    ALT_RATE_SCALE_DOWN
-from game_bridge import GameBridge
+    ALT_RATE_SCALE_DOWN, ALT_BIAS
+from common.data_preprocessing import RECAT_MAPPING
 from gymnasium import spaces
 from enum import Enum
 from rl_algos import RLAlgo, RLAlgos
 from sklearn.preprocessing import OneHotEncoder
 from typing import List, Optional
+from utils.game_bridge import GameBridge
 
 
 SIMULATOR_JAR = os.getenv("SIMULATOR_JAR")
@@ -83,7 +82,7 @@ class TC2Env(gym.Env):
         # [aircraft type, x, y, alt, gs, track, angular speed, vertical speed,
         # current cleared altitude, current cleared heading, current cleared speed, localizer captured] normalized
         # +1 for aircraft masking
-        self.OBS_SPACE_DIMENSION = 33
+        self.OBS_SPACE_DIMENSION = 19
         self.observation_space = spaces.Box(
             low=np.repeat(-1.0, self.OBS_SPACE_DIMENSION * AIRCRAFT_COUNT),
             high=np.repeat(1.0, self.OBS_SPACE_DIMENSION * AIRCRAFT_COUNT),
@@ -109,7 +108,7 @@ class TC2Env(gym.Env):
         tmp_state = np.array(aircraft_state).reshape(AIRCRAFT_COUNT, -1)
         # print(tmp_state)
         ac_types = np.array(tmp_state[:,:4], dtype=np.str_)
-        ac_types = [[AC_FAMILY_MAPPING.get(ac_type, "Unknown")] for ac_type in (ac_types[:,0] + ac_types[:,1] + ac_types[:,2] + ac_types[:,3])]
+        ac_types = [[RECAT_MAPPING.get(ac_type, "Unknown")] for ac_type in (ac_types[:,0] + ac_types[:,1] + ac_types[:,2] + ac_types[:,3])]
         ac_type_one_hot = self.ac_type_one_hot_encoder.transform(ac_types).toarray()
         # Map
         # ICAO type, x, y, alt, ias, track, track rate, vertical speed, cleared alt, cleared hdg, cleared IAS, LOC cap, mask
@@ -119,7 +118,7 @@ class TC2Env(gym.Env):
         ac_state = np.array(tmp_state[:,4:], dtype=np.float32)
         # print(ac_state[0])
         combined_ac_state = np.hstack((
-            (ac_state[:,[3, 5, 0, 1, 2, 6]] - np.array([SPD_BIAS, 0, 0, 0, 0, 0]))
+            (ac_state[:,[3, 5, 0, 1, 2, 6]] - np.array([SPD_BIAS, 0, 0, 0, ALT_BIAS, 0]))
             / np.array([SPD_SCALE_DOWN, TRACK_RATE_SCALE_DOWN, X_Y_SCALE_DOWN * PX_PER_NM, X_Y_SCALE_DOWN * PX_PER_NM, ALT_SCALE_DOWN, ALT_RATE_SCALE_DOWN]),
             np.sin(np.radians(ac_state[:,[4]])), np.cos(np.radians(ac_state[:,[4]])),
             np.sin(np.radians(ac_state[:,[8]])), np.cos(np.radians(ac_state[:,[8]])),
