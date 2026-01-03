@@ -8,7 +8,7 @@ from models.gnns import WSSSAPP02GINE, WSSSAPP02ValueNet
 from models.old_models import MultiAircraftTransformerNetwork
 from stable_baselines3.common.distributions import DiagGaussianDistribution, CategoricalDistribution
 from stable_baselines3.common.policies import ActorCriticPolicy
-from stable_baselines3.common.type_aliases import Schedule
+from stable_baselines3.common.type_aliases import Schedule, PyTorchObs
 from typing import Optional
 
 
@@ -113,7 +113,12 @@ class MultiAircraftGNNPolicy(ActorCriticPolicy):
 
             # TODO Add the log_probs for continuous variables (needs Gaussian distribution)
             # Integrate over bin range, then divide over integration over valid range [-1, 1]
+            alt_spd_dist = self.alt_spd_dist.proba_distribution(action_logits[ac_index - 1, 72:], self.log_std)
+            alt_spd = alt_spd_dist.get_actions(deterministic=deterministic)
 
         values = self.value_net(latent_rep)
 
         return actions, values, log_prob
+
+    def evaluate_actions(self, obs: PyTorchObs, actions: th.Tensor) -> tuple[th.Tensor, th.Tensor, Optional[th.Tensor]]:
+        pass
