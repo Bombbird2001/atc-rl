@@ -97,15 +97,14 @@ class MultiAircraftGNNPolicy(ActorCriticPolicy):
         actions_raw, latent_rep = self.gnn_model(x.x, x.edge_index, x.edge_attr)
         aircraft_logits, action_logits = self.feature_processor.postprocess_data(actions_raw)
 
-        ac_dist = self.aircraft_dist.proba_distribution(aircraft_logits)
-        # print(ac_dist.distribution.probs)
+        ac_dist = self.aircraft_dist.proba_distribution(aircraft_logits.unsqueeze(0))
         ac_index = ac_dist.get_actions(deterministic=deterministic)
         actions = torch.Tensor([ac_index])
         log_prob = ac_dist.log_prob(ac_index)
 
         sub_actions = torch.zeros(3)
         if actions[0] >= 1:
-            combined_dist = self.hdg_alt_spd_dist.proba_distribution(action_logits[ac_index - 1].unsqueeze(0))
+            combined_dist = self.hdg_alt_spd_dist.proba_distribution(action_logits[ac_index - 1])
             # for dist in combined_dist.distribution:
             #     print(dist.probs)
             hdg_alt_spd_actions = combined_dist.get_actions(deterministic=deterministic)
@@ -119,4 +118,5 @@ class MultiAircraftGNNPolicy(ActorCriticPolicy):
         return actions, values, log_prob
 
     def evaluate_actions(self, obs: PyTorchObs, actions: th.Tensor) -> tuple[th.Tensor, th.Tensor, Optional[th.Tensor]]:
+        # TODO We have batched inputs here during training
         pass

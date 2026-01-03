@@ -158,14 +158,16 @@ def run():
     # N_HEAD = 1
     # N_LAYERS = 3
 
-    # processor = TransformerProcessor()
-    processor = GNNProcessor()
-
-    # model = WSSSAPP02Encoder(NODE_FEATURE_DIM, D_MODEL, N_HEAD, N_LAYERS, AIRCRAFT_COUNT)
-    model = WSSSAPP02GINE(NODE_FEATURE_DIM, EDGE_FEATURE_DIM)
-    model.load_state_dict(torch.load("/Users/bombbird2001/Desktop/atc-rl-adsbexchange/trained_models/feat18_gine1_linear1_Adam_lr-0.005_batch_32_epochs-50_2026-01-03_151939/23.pt"))
-    model.eval()
-    # print(model)
+    policy = MultiAircraftGNNPolicy(
+        spaces.Box(
+            low=np.repeat(-1.0, 33 * AIRCRAFT_COUNT),
+            high=np.repeat(1.0, 33 * AIRCRAFT_COUNT),
+            dtype=np.float32
+        ), spaces.MultiDiscrete([1 + AIRCRAFT_COUNT, 72, 14, 10]),
+        18, 2, lambda x: 1,
+        "/Users/bombbird2001/Desktop/atc-rl-adsbexchange/trained_models/feat18_gine1_linear1_Adam_lr-0.005_batch_32_epochs-50_2026-01-03_151939/23.pt"
+    )
+    policy.eval()
     print("Model loaded")
 
     tc2_eval_env = make_vec_env(make_env, n_envs=1,
@@ -179,16 +181,7 @@ def run():
     cumulative_reward = 0
     while True:
         with torch.no_grad():
-            # x, attention_mask = processor.preprocess_data(obs)
-            # print(x[0], attention_mask)
-            # action = model(x, attention_mask)
-            # action = processor.postprocess_data(action, attention_mask)
-
-            # print(torch.Tensor(obs))
-            x = processor.preprocess_data(torch.Tensor(obs))
-            action = model(x.x, x.edge_index, x.edge_attr)[0]
-            action = processor.postprocess_data(action)
-            # print(action)
+            action = policy.forward(torch.Tensor(obs), deterministic=True)[0].unsqueeze(0).numpy().astype(np.int32)
             obs, reward, terminated, info = tc2_eval_env.step(action)
             cumulative_reward += reward
             if terminated:
@@ -197,19 +190,19 @@ def run():
 
 
 if __name__ == "__main__":
-    # if TRAIN:
-    #     train()
-    # else:
-    #     run()
+    if TRAIN:
+        train()
+    else:
+        run()
 
     # processor = GNNProcessor()
-    policy = MultiAircraftGNNPolicy(
-        spaces.Box(
-            low=np.repeat(-1.0, 33 * AIRCRAFT_COUNT),
-            high=np.repeat(1.0, 33 * AIRCRAFT_COUNT),
-            dtype=np.float32
-        ), spaces.MultiDiscrete([1 + AIRCRAFT_COUNT, 72, 14, 10]),
-        18, 2, lambda x: 1,
-        "/Users/bombbird2001/Desktop/atc-rl-adsbexchange/trained_models/feat18_gine1_linear1_Adam_lr-0.005_batch_32_epochs-50_2026-01-03_151939/23.pt"
-    )
-    print(policy.forward(TEST_DATA, deterministic=False))
+    # policy = MultiAircraftGNNPolicy(
+    #     spaces.Box(
+    #         low=np.repeat(-1.0, 33 * AIRCRAFT_COUNT),
+    #         high=np.repeat(1.0, 33 * AIRCRAFT_COUNT),
+    #         dtype=np.float32
+    #     ), spaces.MultiDiscrete([1 + AIRCRAFT_COUNT, 72, 14, 10]),
+    #     18, 2, lambda x: 1,
+    #     "/Users/bombbird2001/Desktop/atc-rl-adsbexchange/trained_models/feat18_gine1_linear1_Adam_lr-0.005_batch_32_epochs-50_2026-01-03_151939/23.pt"
+    # )
+    # print(policy.forward(TEST_DATA, deterministic=False))

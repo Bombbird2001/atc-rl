@@ -127,6 +127,7 @@ class TC2Env(gym.Env):
             ac_state[:,[11]]
         ))
         # print(combined_ac_state.shape)
+        # TODO Move pre-processing here
         return combined_ac_state.reshape(1, -1)
 
     def convert_action(self, action) -> np.ndarray:
@@ -187,6 +188,7 @@ class TC2Env(gym.Env):
         #     expanded_action = np.hstack((np.zeros((action[0] - 1) * np.zeros(4)), np.array([action[1], action[2] - 2, action[3] - 16, 1]), np.zeros((AIRCRAFT_COUNT - 1 - action[0]) * np.zeros(4))))
         # print(expanded_action)
 
+        print(action)
         self.sim_bridge.write_actions(action)
 
         # Set the reset request flag before signalling action done
