@@ -189,19 +189,26 @@ def run():
 
 
 if __name__ == "__main__":
-    if TRAIN:
-        train()
-    else:
-        run()
+    # if TRAIN:
+    #     train()
+    # else:
+    #     run()
 
-    # processor = GNNProcessor()
-    # policy = MultiAircraftGNNPolicy(
-    #     spaces.Box(
-    #         low=np.repeat(-1.0, 33 * AIRCRAFT_COUNT),
-    #         high=np.repeat(1.0, 33 * AIRCRAFT_COUNT),
-    #         dtype=np.float32
-    #     ), spaces.MultiDiscrete([1 + AIRCRAFT_COUNT, 72, 14, 10]),
-    #     18, 2, lambda x: 1,
-    #     "/Users/bombbird2001/Desktop/atc-rl-adsbexchange/trained_models/feat18_gine1_linear1_Adam_lr-0.005_batch_32_epochs-50_2026-01-03_151939/23.pt"
-    # )
-    # print(policy.forward(TEST_DATA, deterministic=False))
+    processor = GNNProcessor()
+    policy = MultiAircraftGNNPolicy(
+        spaces.Box(
+            low=np.repeat(-1.0, 33 * AIRCRAFT_COUNT),
+            high=np.repeat(1.0, 33 * AIRCRAFT_COUNT),
+            dtype=np.float32
+        ), spaces.MultiDiscrete([1 + AIRCRAFT_COUNT, 72, 14, 10]),
+        18, 2, lambda x: 1,
+        "/Users/bombbird2001/Desktop/atc-rl-adsbexchange/trained_models/feat18_gine2_linear1_Adam_lr-0.005_batch_32_epochs-50_2026-01-04_044719/21.pt"
+    )
+
+    action_1, value_1, log_prob_1 = policy(TEST_DATA, deterministic=False)
+    action_2, value_2, log_prob_2 = policy(TEST_DATA, deterministic=False)
+    print(action_1, value_1, log_prob_1)
+    print(action_2, value_2, log_prob_2)
+    actions = torch.vstack((action_1, action_2))
+    values, log_probs, entropies = policy.evaluate_actions(torch.vstack([TEST_DATA, TEST_DATA]), actions)
+    print(actions, values, log_probs, entropies)

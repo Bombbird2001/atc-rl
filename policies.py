@@ -101,13 +101,15 @@ class MultiAircraftGNNPolicy(ActorCriticPolicy):
 
         return aircraft_logits, action_logits, latent_rep
 
-    def forward(self, obs: th.Tensor, deterministic: bool = False) -> tuple[th.Tensor, th.Tensor, th.Tensor]:
-        aircraft_logits, action_logits, latent_rep = self._predict_logits_from_obs(obs)
+    def forward_pass_full(self, obs: th.Tensor, deterministic: bool = False, action_only=False) -> Union[th.Tensor, tuple[th.Tensor, th.Tensor, th.Tensor]]:
+        aircraft_logits, action_logits, latent_rep = self._model_output_from_obs(obs)
 
         ac_dist = self.aircraft_dist.proba_distribution(aircraft_logits.unsqueeze(0))
         ac_index = ac_dist.get_actions(deterministic=deterministic)
-        actions = th.Tensor([ac_index])
-        log_prob = ac_dist.log_prob(ac_index)
+        actions = th.IntTensor([ac_index])
+        log_prob = th.zeros(0)  # To suppress variable not initialized warning
+        if not action_only:
+            log_prob = ac_dist.log_prob(ac_index)
 
         sub_actions = th.zeros(3)
         if actions[0] >= 1:
@@ -116,13 +118,20 @@ class MultiAircraftGNNPolicy(ActorCriticPolicy):
             #     print(dist.probs)
             hdg_alt_spd_actions = combined_dist.get_actions(deterministic=deterministic)
             sub_actions = hdg_alt_spd_actions.squeeze()
-            log_prob += combined_dist.log_prob(hdg_alt_spd_actions).squeeze()
+            if not action_only:
+                log_prob += combined_dist.log_prob(hdg_alt_spd_actions).squeeze()
 
         actions = th.hstack((actions, sub_actions))
+
+        if action_only:
+            return actions
 
         values = self.value_net(latent_rep)
 
         return actions, values, log_prob
+
+    def forward(self, obs: th.Tensor, deterministic: bool = False) -> tuple[th.Tensor, th.Tensor, th.Tensor]:
+        return self.forward_pass_full(obs, deterministic=deterministic, action_only=False)
 
     def extract_features(
             self, obs: PyTorchObs, features_extractor: Optional[BaseFeaturesExtractor] = None
@@ -131,27 +140,46 @@ class MultiAircraftGNNPolicy(ActorCriticPolicy):
         raise NotImplementedError("Not using due to custom graph extraction for GNNs")
 
     def _predict(self, observation: PyTorchObs, deterministic: bool = False) -> th.Tensor:
-        aircraft_logits, action_logits, _ = self._model_output_from_obs(observation)
-
-        ac_dist = self.aircraft_dist.proba_distribution(aircraft_logits.unsqueeze(0))
-        ac_index = ac_dist.get_actions(deterministic=deterministic)
-        actions = th.Tensor([ac_index])
-
-        sub_actions = th.zeros(3)
-        if actions[0] >= 1:
-            combined_dist = self.hdg_alt_spd_dist.proba_distribution(action_logits[ac_index - 1])
-            # for dist in combined_dist.distribution:
-            #     print(dist.probs)
-            hdg_alt_spd_actions = combined_dist.get_actions(deterministic=deterministic)
-            sub_actions = hdg_alt_spd_actions.squeeze()
-
-        actions = th.hstack((actions, sub_actions))
-
-        return actions
+        return self.forward_pass_full(observation, deterministic=deterministic, action_only=True)
 
     def evaluate_actions(self, obs: PyTorchObs, actions: th.Tensor) -> tuple[th.Tensor, th.Tensor, Optional[th.Tensor]]:
-        # TODO We have batched inputs here during training
-        raise NotImplementedError("WIP")
+        values = []
+        log_probs = []
+        entropies = []
+
+        # Variable graph lengths and the need to compute the value function individually for each graph separately makes
+        # it troublesome to use PyTorch Geometric's batching since we still have to split them up later for a forward
+        # pass through the value net
+        # We will just iterate
+        for idx, row in enumerate(obs):
+            row_actions = actions[idx]
+            aircraft_logits, action_logits, latent_rep = self._model_output_from_obs(row)
+            ac_dist = self.aircraft_dist.proba_distribution(aircraft_logits.unsqueeze(0))
+            ac_index = row_actions[0].unsqueeze(0)
+            log_prob = ac_dist.log_prob(ac_index)
+            entropy = ac_dist.entropy()
+
+            combined_dist = self.hdg_alt_spd_dist.proba_distribution(action_logits[ac_index - 1])
+            hdg_alt_spd_actions = row_actions[1:].unsqueeze(0)
+            log_prob += combined_dist.log_prob(hdg_alt_spd_actions).squeeze()
+
+            value = self.value_net(latent_rep)
+
+            # Sum entropies of each conditional choice * probability of choosing it
+            # No aircraft selected -> conditional entropy for hdg/alt/spd is 0
+            conditional_entropies = [th.zeros(1)]
+            # Exclude index 0
+            for i in range(1, aircraft_logits.shape[0]):
+                conditional_dist = self.hdg_alt_spd_dist.proba_distribution(action_logits[i - 1].unsqueeze(0))
+                conditional_entropies.append(conditional_dist.entropy())
+            conditional_entropies = th.hstack(conditional_entropies)
+            entropy += (aircraft_logits.softmax(0) * conditional_entropies).sum()
+
+            values.append(value)
+            log_probs.append(log_prob)
+            entropies.append(entropy)
+
+        return th.stack(values), th.stack(log_probs), th.stack(entropies)
 
     def get_distribution(self, obs: PyTorchObs) -> Distribution:
         # Should not be used
