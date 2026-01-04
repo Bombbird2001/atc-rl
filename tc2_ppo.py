@@ -8,7 +8,6 @@ from common.data_preprocessing import GNNProcessor
 from common.constants import AIRCRAFT_COUNT, TEST_DATA
 from datetime import datetime
 from gymnasium import spaces
-from models.gnns import WSSSAPP02GINE
 from playsound3 import playsound
 from policies import MultiAircraftTransformerPolicy, MultiAircraftGNNPolicy
 from rl_algos import RLAlgos
@@ -165,7 +164,7 @@ def run():
             dtype=np.float32
         ), spaces.MultiDiscrete([1 + AIRCRAFT_COUNT, 72, 14, 10]),
         18, 2, lambda x: 1,
-        "/Users/bombbird2001/Desktop/atc-rl-adsbexchange/trained_models/feat18_gine1_linear1_Adam_lr-0.005_batch_32_epochs-50_2026-01-03_151939/23.pt"
+        "/Users/bombbird2001/Desktop/atc-rl-adsbexchange/trained_models/feat18_gine2_linear1_Adam_lr-0.005_batch_32_epochs-50_2026-01-04_044719/21.pt"
     )
     policy.eval()
     print("Model loaded")

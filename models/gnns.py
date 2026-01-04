@@ -13,30 +13,30 @@ class WSSSAPP02GINE(Module):
             Linear(node_feature_count, 64),
             LayerNorm(64),
             GELU(),
-            Linear(64, 32),
+            Linear(64, 64),
         )
-        # nn2 = Sequential(
-        #     Linear(32, 32),
-        #     LayerNorm(32),
-        #     GELU(),
-        #     Linear(32, 16),
-        # )
+        nn2 = Sequential(
+            Linear(64, 64),
+            LayerNorm(64),
+            GELU(),
+            Linear(64, 64),
+        )
 
         self.gine1 = GINEConv(nn1, edge_dim=edge_feature_count, train_eps=True)
-        # self.gine2 = GINEConv(nn2, edge_dim=edge_feature_count, train_eps=True)
-        self.ln1 = LayerNorm(32)
-        # self.ln2 = LayerNorm(16)
+        self.gine2 = GINEConv(nn2, edge_dim=edge_feature_count, train_eps=True)
+        self.ln1 = LayerNorm(64)
+        self.ln2 = LayerNorm(64)
         # 3 outputs for probability of changing each clearance, 72 bins for heading, 14 bins for altitude, 10 bins for speed
-        self.linear = Linear(32, 3 + HDG_BINS + ALT_BINS + SPD_BINS)
+        self.linear = Linear(64, 3 + HDG_BINS + ALT_BINS + SPD_BINS)
 
     def forward(self, x, edge_index, edge_attr):
         h = self.gine1(x, edge_index, edge_attr)
         h = self.ln1(h)
         h = F.gelu(h)
+        h = self.gine2(h, edge_index, edge_attr)
+        h = self.ln2(h)
+        h = F.gelu(h)
         latent = h
-        # h = self.gine2(h, edge_index, edge_attr)
-        # h = self.ln2(h)
-        # h = F.gelu(h)
         h = self.linear(h)
 
         # Also return latent representation to pass to separate value/critic net
@@ -44,14 +44,14 @@ class WSSSAPP02GINE(Module):
 
     @property
     def name(self):
-        return f"gine1_linear1"
+        return f"gine2_linear1"
 
 
 class WSSSAPP02ValueNet(Module):
     def __init__(self):
         super().__init__()
 
-        self.linear = Linear(32, 1)
+        self.linear = Linear(64, 1)
 
     def forward(self, x: torch.Tensor):
         # Global average pooling

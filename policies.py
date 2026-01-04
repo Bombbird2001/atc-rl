@@ -1,15 +1,14 @@
-import torch
 import torch as th
 import torch.nn as nn
-
 from common.data_preprocessing import GNNProcessor
 from gymnasium import spaces
 from models.gnns import WSSSAPP02GINE, WSSSAPP02ValueNet
 from models.old_models import MultiAircraftTransformerNetwork
-from stable_baselines3.common.distributions import CategoricalDistribution, MultiCategoricalDistribution
+from stable_baselines3.common.distributions import CategoricalDistribution, MultiCategoricalDistribution, Distribution
 from stable_baselines3.common.policies import ActorCriticPolicy
+from stable_baselines3.common.torch_layers import BaseFeaturesExtractor
 from stable_baselines3.common.type_aliases import Schedule, PyTorchObs
-from typing import Optional
+from typing import Optional, Union
 
 
 class MultiAircraftTransformerPolicy(ActorCriticPolicy):
@@ -72,10 +71,13 @@ class MultiAircraftGNNPolicy(ActorCriticPolicy):
 
         super().__init__(observation_space, action_space, lr_schedule, *args, **kwargs)
 
+    def _build_mlp_extractor(self) -> None:
+        raise NotImplementedError("Not using MLP")
+
     def _build_gnn_extractor(self) -> None:
         self.gnn_model = WSSSAPP02GINE(self.node_feature_dim, self.edge_feature_dim)
         if self.load_model_path is not None:
-            self.gnn_model.load_state_dict(torch.load(self.load_model_path))
+            self.gnn_model.load_state_dict(th.load(self.load_model_path))
 
     def _build(self, lr_schedule: Schedule) -> None:
         self.feature_processor = GNNProcessor()
@@ -92,17 +94,22 @@ class MultiAircraftGNNPolicy(ActorCriticPolicy):
         self.aircraft_dist = CategoricalDistribution(action_space.nvec[0])
         self.hdg_alt_spd_dist = MultiCategoricalDistribution(list(action_space.nvec[1:]))
 
-    def forward(self, obs: th.Tensor, deterministic: bool = False) -> tuple[th.Tensor, th.Tensor, th.Tensor]:
+    def _model_output_from_obs(self, obs: th.Tensor) -> tuple[th.Tensor, th.Tensor, th.Tensor]:
         x = self.feature_processor.preprocess_data(obs)
         actions_raw, latent_rep = self.gnn_model(x.x, x.edge_index, x.edge_attr)
         aircraft_logits, action_logits = self.feature_processor.postprocess_data(actions_raw)
 
+        return aircraft_logits, action_logits, latent_rep
+
+    def forward(self, obs: th.Tensor, deterministic: bool = False) -> tuple[th.Tensor, th.Tensor, th.Tensor]:
+        aircraft_logits, action_logits, latent_rep = self._predict_logits_from_obs(obs)
+
         ac_dist = self.aircraft_dist.proba_distribution(aircraft_logits.unsqueeze(0))
         ac_index = ac_dist.get_actions(deterministic=deterministic)
-        actions = torch.Tensor([ac_index])
+        actions = th.Tensor([ac_index])
         log_prob = ac_dist.log_prob(ac_index)
 
-        sub_actions = torch.zeros(3)
+        sub_actions = th.zeros(3)
         if actions[0] >= 1:
             combined_dist = self.hdg_alt_spd_dist.proba_distribution(action_logits[ac_index - 1])
             # for dist in combined_dist.distribution:
@@ -111,12 +118,49 @@ class MultiAircraftGNNPolicy(ActorCriticPolicy):
             sub_actions = hdg_alt_spd_actions.squeeze()
             log_prob += combined_dist.log_prob(hdg_alt_spd_actions).squeeze()
 
-        actions = torch.hstack((actions, sub_actions))
+        actions = th.hstack((actions, sub_actions))
 
         values = self.value_net(latent_rep)
 
         return actions, values, log_prob
 
+    def extract_features(
+            self, obs: PyTorchObs, features_extractor: Optional[BaseFeaturesExtractor] = None
+    ) -> Union[th.Tensor, tuple[th.Tensor, th.Tensor]]:
+        # Should not be used
+        raise NotImplementedError("Not using due to custom graph extraction for GNNs")
+
+    def _predict(self, observation: PyTorchObs, deterministic: bool = False) -> th.Tensor:
+        aircraft_logits, action_logits, _ = self._model_output_from_obs(observation)
+
+        ac_dist = self.aircraft_dist.proba_distribution(aircraft_logits.unsqueeze(0))
+        ac_index = ac_dist.get_actions(deterministic=deterministic)
+        actions = th.Tensor([ac_index])
+
+        sub_actions = th.zeros(3)
+        if actions[0] >= 1:
+            combined_dist = self.hdg_alt_spd_dist.proba_distribution(action_logits[ac_index - 1])
+            # for dist in combined_dist.distribution:
+            #     print(dist.probs)
+            hdg_alt_spd_actions = combined_dist.get_actions(deterministic=deterministic)
+            sub_actions = hdg_alt_spd_actions.squeeze()
+
+        actions = th.hstack((actions, sub_actions))
+
+        return actions
+
     def evaluate_actions(self, obs: PyTorchObs, actions: th.Tensor) -> tuple[th.Tensor, th.Tensor, Optional[th.Tensor]]:
         # TODO We have batched inputs here during training
-        pass
+        raise NotImplementedError("WIP")
+
+    def get_distribution(self, obs: PyTorchObs) -> Distribution:
+        # Should not be used
+        raise NotImplementedError("Not implementing due to conditional distribution")
+
+    def predict_values(self, obs: PyTorchObs) -> th.Tensor:
+        if not isinstance(obs, th.Tensor):
+            raise ValueError(f"Only torch.Tensor is supported, got {type(obs)}")
+
+        _, _, latent_rep = self._model_output_from_obs(obs)
+
+        return self.value_net(latent_rep)

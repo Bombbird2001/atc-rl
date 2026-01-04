@@ -182,14 +182,14 @@ class TC2Env(gym.Env):
         # Convert action to new format (at least temporarily)
         # Action is length (1 + 72 + 2)
         # print(action)
-        # if action[0] == 0:
-        #     expanded_action = (np.zeros(4 * AIRCRAFT_COUNT))
-        # else:
-        #     expanded_action = np.hstack((np.zeros((action[0] - 1) * np.zeros(4)), np.array([action[1], action[2] - 2, action[3] - 16, 1]), np.zeros((AIRCRAFT_COUNT - 1 - action[0]) * np.zeros(4))))
+        if action[0] == 0:
+            expanded_action = (np.zeros(4 * AIRCRAFT_COUNT))
+        else:
+            ac_index = action[0] - 1
+            expanded_action = np.hstack((np.zeros(ac_index * 4), np.array([action[1], action[2], action[3], 1]), np.zeros((AIRCRAFT_COUNT - 1 - ac_index) * 4))).astype(np.int32)
         # print(expanded_action)
 
-        print(action)
-        self.sim_bridge.write_actions(action)
+        self.sim_bridge.write_actions(expanded_action)
 
         # Set the reset request flag before signalling action done
         # The next time the game loop finishes simulating 300 frames, it will stop the update till reset() is called here
@@ -205,6 +205,7 @@ class TC2Env(gym.Env):
         # print(f"{time.time()} Waiting for action ready")
 
         # Wait till simulator finished simulating 300 frames (action_ready event)
+        # print("Waiting for simulation complete")
         self.sim_bridge.wait_action_ready()
 
         # Read state, reward, terminated, truncated from shared memory
