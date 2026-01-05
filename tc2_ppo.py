@@ -4,7 +4,6 @@ import os
 import time
 import torch
 import wandb
-from common.data_preprocessing import GNNProcessor
 from common.constants import AIRCRAFT_COUNT, TEST_DATA
 from datetime import datetime
 from gymnasium import spaces
@@ -32,19 +31,22 @@ if ALGO == RLAlgos.SAC:
     }
     STATS_LOG_INTERVAL = 100
 elif ALGO == RLAlgos.PPO:
-    LEARNING_RATE = 7.5e-5
+    LEARNING_RATE = 1e-5
     MIN_LR = LEARNING_RATE * 0.2
-    TIMESTEPS = 200_000
-    POLICY = MultiAircraftTransformerPolicy
+    TIMESTEPS = 70_000
+    POLICY = MultiAircraftGNNPolicy
     model_kwargs = {
         "ent_coef": 0.01,
         "n_epochs": 5,
         "n_steps": 256,
-        "batch_size": 1024,
+        "batch_size": 64,
         "gamma": 0.99,
         "policy_kwargs": {
-            "token_dim": 11,
-            "max_tokens": AIRCRAFT_COUNT,
+            # "token_dim": 11,
+            # "max_tokens": AIRCRAFT_COUNT,
+            "node_feature_dim": 18,
+            "edge_feature_dim": 2,
+            "load_model_path": "/Users/bombbird2001/Desktop/atc-rl-adsbexchange/trained_models/feat18_gine2_linear1_Adam_lr-0.005_batch_32_epochs-50_2026-01-04_044719/21.pt",
         },
     }
     STATS_LOG_INTERVAL = 3
@@ -64,13 +66,13 @@ else:
     raise NotImplementedError(f"Unknown policy {ALGO.name}")
 
 
-TRAIN = False
-ENV_COUNT = 128
+TRAIN = True
+ENV_COUNT = 1
 DEVICE = "cpu"
 AUTO_INIT_SIM = True
 start_from_version = None
-version = f"multi-aircraft-transformer-{datetime.now().strftime("%Y-%m-%d_%H-%M-%S")}-lr-{LEARNING_RATE}-ent-coef-{model_kwargs['ent_coef']}-steps-{TIMESTEPS}"
-additional_description = f"""Random spawn location
+version = f"multi-aircraft-gnn-{datetime.now().strftime("%Y-%m-%d_%H-%M-%S")}-lr-{LEARNING_RATE}-batch-{model_kwargs['batch_size']}-ent-coef-{model_kwargs['ent_coef']}-steps-{TIMESTEPS}"
+additional_description = f"""STAR spawn location
 No clearance penalty
 No conflict enforcement
 Max offset angle 80 degrees for LOC capture
@@ -93,6 +95,7 @@ def train():
     tc2_env = make_vec_env(make_env, n_envs=ENV_COUNT,
                            env_kwargs={
                                "algo": ALGO,
+                               "ac_type_one_hot_encoder": joblib.load("common/recat_one_hot_encoder.joblib"),
                                "auto_init_sim": TRAIN and AUTO_INIT_SIM,
                                "reset_print_period": 50,
                            }, monitor_dir=f"./{algo_name}/logs/{version}"
@@ -163,7 +166,7 @@ def run():
             high=np.repeat(1.0, 33 * AIRCRAFT_COUNT),
             dtype=np.float32
         ), spaces.MultiDiscrete([1 + AIRCRAFT_COUNT, 72, 14, 10]),
-        18, 2, lambda x: 1,
+        lambda x: 1, NODE_FEATURE_DIM, EDGE_FEATURE_DIM,
         "/Users/bombbird2001/Desktop/atc-rl-adsbexchange/trained_models/feat18_gine2_linear1_Adam_lr-0.005_batch_32_epochs-50_2026-01-04_044719/21.pt"
     )
     policy.eval()
@@ -188,20 +191,14 @@ def run():
                 cumulative_reward = 0
 
 
-if __name__ == "__main__":
-    # if TRAIN:
-    #     train()
-    # else:
-    #     run()
-
-    processor = GNNProcessor()
+def quick_test():
     policy = MultiAircraftGNNPolicy(
         spaces.Box(
             low=np.repeat(-1.0, 33 * AIRCRAFT_COUNT),
             high=np.repeat(1.0, 33 * AIRCRAFT_COUNT),
             dtype=np.float32
         ), spaces.MultiDiscrete([1 + AIRCRAFT_COUNT, 72, 14, 10]),
-        18, 2, lambda x: 1,
+        lambda x: 1, 18, 2,
         "/Users/bombbird2001/Desktop/atc-rl-adsbexchange/trained_models/feat18_gine2_linear1_Adam_lr-0.005_batch_32_epochs-50_2026-01-04_044719/21.pt"
     )
 
@@ -212,3 +209,11 @@ if __name__ == "__main__":
     actions = torch.vstack((action_1, action_2))
     values, log_probs, entropies = policy.evaluate_actions(torch.vstack([TEST_DATA, TEST_DATA]), actions)
     print(actions, values, log_probs, entropies)
+
+
+if __name__ == "__main__":
+    if TRAIN:
+        train()
+    else:
+        quick_test()
+        # run()

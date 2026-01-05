@@ -54,9 +54,9 @@ class MultiAircraftGNNPolicy(ActorCriticPolicy):
             self,
             observation_space: spaces.Space,
             action_space: spaces.Space,
+            lr_schedule: Schedule,
             node_feature_dim: int,
             edge_feature_dim: int,
-            lr_schedule: Schedule,
             load_model_path: Optional[str] = None,
             *args,
             **kwargs,
@@ -111,7 +111,7 @@ class MultiAircraftGNNPolicy(ActorCriticPolicy):
         if not action_only:
             log_prob = ac_dist.log_prob(ac_index)
 
-        sub_actions = th.zeros(3)
+        sub_actions = th.zeros(3, dtype=th.int)
         if actions[0] >= 1:
             combined_dist = self.hdg_alt_spd_dist.proba_distribution(action_logits[ac_index - 1])
             # for dist in combined_dist.distribution:
@@ -121,7 +121,7 @@ class MultiAircraftGNNPolicy(ActorCriticPolicy):
             if not action_only:
                 log_prob += combined_dist.log_prob(hdg_alt_spd_actions).squeeze()
 
-        actions = th.hstack((actions, sub_actions))
+        actions = th.hstack((actions, sub_actions)).unsqueeze(0)
 
         if action_only:
             return actions
@@ -146,6 +146,7 @@ class MultiAircraftGNNPolicy(ActorCriticPolicy):
         values = []
         log_probs = []
         entropies = []
+        actions = actions.type(th.int)
 
         # Variable graph lengths and the need to compute the value function individually for each graph separately makes
         # it troublesome to use PyTorch Geometric's batching since we still have to split them up later for a forward

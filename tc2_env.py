@@ -88,6 +88,9 @@ class TC2Env(gym.Env):
             high=np.repeat(1.0, self.OBS_SPACE_DIMENSION * AIRCRAFT_COUNT),
             dtype=np.float32
         )
+
+        # Remove nuisance missing feature name warning since we're using numpy during inference with no column names
+        ac_type_one_hot_encoder.feature_names_in_ = None
         self.ac_type_one_hot_encoder = ac_type_one_hot_encoder
 
         self.episode = 0
@@ -181,9 +184,8 @@ class TC2Env(gym.Env):
 
         # Convert action to new format (at least temporarily)
         # Action is length (1 + 72 + 2)
-        # print(action)
         if action[0] == 0:
-            expanded_action = (np.zeros(4 * AIRCRAFT_COUNT))
+            expanded_action = (np.zeros(4 * AIRCRAFT_COUNT, dtype=np.int32))
         else:
             ac_index = action[0] - 1
             expanded_action = np.hstack((np.zeros(ac_index * 4), np.array([action[1], action[2], action[3], 1]), np.zeros((AIRCRAFT_COUNT - 1 - ac_index) * 4))).astype(np.int32)
