@@ -57,6 +57,7 @@ class MultiAircraftGNNPolicy(ActorCriticPolicy):
             lr_schedule: Schedule,
             node_feature_dim: int,
             edge_feature_dim: int,
+            freeze_action_net: bool = False,
             load_model_path: Optional[str] = None,
             *args,
             **kwargs,
@@ -65,6 +66,7 @@ class MultiAircraftGNNPolicy(ActorCriticPolicy):
 
         self.node_feature_dim = node_feature_dim
         self.edge_feature_dim = edge_feature_dim
+        self.freeze_action_net = freeze_action_net
         self.load_model_path = load_model_path
 
         self._init_distributions(action_space)
@@ -88,7 +90,19 @@ class MultiAircraftGNNPolicy(ActorCriticPolicy):
         self.value_net = WSSSAPP02ValueNet()
 
         # Setup optimizer with initial learning rate
-        self.optimizer = self.optimizer_class(list(self.gnn_model.parameters()) + list(self.value_net.parameters()), lr=lr_schedule(1), **self.optimizer_kwargs)
+        if not self.freeze_action_net:
+            self.optimizer = self.optimizer_class(list(self.gnn_model.parameters()) + list(self.value_net.parameters()) + list(self.action_net.parameters()), lr=lr_schedule(1), **self.optimizer_kwargs)
+        else:
+            self.optimizer = self.optimizer_class(self.value_net.parameters(), lr=lr_schedule(1), **self.optimizer_kwargs)
+
+            for param in self.gnn_model.parameters():
+                param.requires_grad = False
+
+            for param in self.action_net.parameters():
+                param.requires_grad = False
+
+    def get_gnn_parameters(self):
+        return list(self.gnn_model.parameters())
 
     def _init_distributions(self, action_space: spaces.Space):
         self.aircraft_dist = CategoricalDistribution(action_space.nvec[0])
@@ -102,33 +116,45 @@ class MultiAircraftGNNPolicy(ActorCriticPolicy):
         return aircraft_logits, action_logits, latent_rep
 
     def forward_pass_full(self, obs: th.Tensor, deterministic: bool = False, action_only=False) -> Union[th.Tensor, tuple[th.Tensor, th.Tensor, th.Tensor]]:
-        aircraft_logits, action_logits, latent_rep = self._model_output_from_obs(obs)
+        # obs may contain multiple rows
 
-        ac_dist = self.aircraft_dist.proba_distribution(aircraft_logits.unsqueeze(0))
-        ac_index = ac_dist.get_actions(deterministic=deterministic)
-        actions = th.IntTensor([ac_index])
-        log_prob = th.zeros(0)  # To suppress variable not initialized warning
-        if not action_only:
-            log_prob = ac_dist.log_prob(ac_index)
+        action_list = []
+        value_list = []
+        log_prob_list = []
 
-        sub_actions = th.zeros(3, dtype=th.int)
-        if actions[0] >= 1:
-            combined_dist = self.hdg_alt_spd_dist.proba_distribution(action_logits[ac_index - 1])
-            # for dist in combined_dist.distribution:
-            #     print(dist.probs)
-            hdg_alt_spd_actions = combined_dist.get_actions(deterministic=deterministic)
-            sub_actions = hdg_alt_spd_actions.squeeze()
+        for row_obs in obs:
+            row_obs = row_obs.unsqueeze(0)
+            aircraft_logits, action_logits, latent_rep = self._model_output_from_obs(row_obs)
+
+            ac_dist = self.aircraft_dist.proba_distribution(aircraft_logits.unsqueeze(0))
+            ac_index = ac_dist.get_actions(deterministic=deterministic)
+            actions = th.IntTensor([ac_index])
+            log_prob = th.zeros(0)  # To suppress variable not initialized warning
             if not action_only:
-                log_prob += combined_dist.log_prob(hdg_alt_spd_actions).squeeze()
+                log_prob = ac_dist.log_prob(ac_index)
 
-        actions = th.hstack((actions, sub_actions)).unsqueeze(0)
+            sub_actions = th.zeros(3, dtype=th.int)
+            if actions[0] >= 1:
+                combined_dist = self.hdg_alt_spd_dist.proba_distribution(action_logits[ac_index - 1])
+                # for dist in combined_dist.distribution:
+                #     print(dist.probs)
+                hdg_alt_spd_actions = combined_dist.get_actions(deterministic=deterministic)
+                sub_actions = hdg_alt_spd_actions.squeeze()
+                if not action_only:
+                    log_prob += combined_dist.log_prob(hdg_alt_spd_actions).squeeze()
+
+            actions = th.hstack((actions, sub_actions)).unsqueeze(0)
+            action_list.append(actions)
+
+            if not action_only:
+                log_prob_list.append(log_prob)
+                values = self.value_net(latent_rep)
+                value_list.append(values)
 
         if action_only:
-            return actions
+            return th.vstack(action_list)
 
-        values = self.value_net(latent_rep)
-
-        return actions, values, log_prob
+        return th.vstack(action_list), th.hstack(value_list), th.hstack(log_prob_list)
 
     def forward(self, obs: th.Tensor, deterministic: bool = False) -> tuple[th.Tensor, th.Tensor, th.Tensor]:
         return self.forward_pass_full(obs, deterministic=deterministic, action_only=False)
@@ -190,6 +216,12 @@ class MultiAircraftGNNPolicy(ActorCriticPolicy):
         if not isinstance(obs, th.Tensor):
             raise ValueError(f"Only torch.Tensor is supported, got {type(obs)}")
 
-        _, _, latent_rep = self._model_output_from_obs(obs)
+        # obs may contain multiple rows
+        values = []
 
-        return self.value_net(latent_rep)
+        for row_obs in obs:
+            _, _, latent_rep = self._model_output_from_obs(row_obs)
+            value = self.value_net(latent_rep)
+            values.append(value)
+
+        return th.stack(values)

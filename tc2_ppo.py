@@ -31,9 +31,9 @@ if ALGO == RLAlgos.SAC:
     }
     STATS_LOG_INTERVAL = 100
 elif ALGO == RLAlgos.PPO:
-    LEARNING_RATE = 1e-5
+    LEARNING_RATE = 1e-4
     MIN_LR = LEARNING_RATE * 0.2
-    TIMESTEPS = 70_000
+    TIMESTEPS = 100_000
     POLICY = MultiAircraftGNNPolicy
     model_kwargs = {
         "ent_coef": 0.01,
@@ -46,7 +46,8 @@ elif ALGO == RLAlgos.PPO:
             # "max_tokens": AIRCRAFT_COUNT,
             "node_feature_dim": 18,
             "edge_feature_dim": 2,
-            "load_model_path": "/Users/bombbird2001/Desktop/atc-rl-adsbexchange/trained_models/feat18_gine2_linear1_Adam_lr-0.005_batch_32_epochs-50_2026-01-04_044719/21.pt",
+            "freeze_action_net": False,
+            # "load_model_path": "/Users/bombbird2001/Desktop/atc-rl-adsbexchange/trained_models/feat18_gine2_linear1_Adam_lr-0.005_batch_32_epochs-50_2026-01-04_044719/21.pt",
         },
     }
     STATS_LOG_INTERVAL = 3
@@ -67,7 +68,7 @@ else:
 
 
 TRAIN = True
-ENV_COUNT = 1
+ENV_COUNT = 4
 DEVICE = "cpu"
 AUTO_INIT_SIM = True
 start_from_version = None
@@ -209,6 +210,8 @@ def quick_test():
     actions = torch.vstack((action_1, action_2))
     values, log_probs, entropies = policy.evaluate_actions(torch.vstack([TEST_DATA, TEST_DATA]), actions)
     print(actions, values, log_probs, entropies)
+    stuff = policy(torch.vstack([TEST_DATA, TEST_DATA]), deterministic=False)
+    print(stuff)
 
 
 if __name__ == "__main__":
