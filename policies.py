@@ -2,13 +2,13 @@ import torch as th
 import torch.nn as nn
 from common.data_preprocessing import GNNProcessor
 from gymnasium import spaces
-from models.gnns import WSSSAPP02GINE, WSSSAPP02ValueNet
 from models.old_models import MultiAircraftTransformerNetwork
 from stable_baselines3.common.distributions import CategoricalDistribution, MultiCategoricalDistribution, Distribution
 from stable_baselines3.common.policies import ActorCriticPolicy
 from stable_baselines3.common.torch_layers import BaseFeaturesExtractor
 from stable_baselines3.common.type_aliases import Schedule, PyTorchObs
-from typing import Optional, Union
+from torch.nn import Module
+from typing import Optional, Union, Type
 
 
 class MultiAircraftTransformerPolicy(ActorCriticPolicy):
@@ -49,12 +49,14 @@ class MultiAircraftTransformerPolicy(ActorCriticPolicy):
         self.optimizer = self.optimizer_class(self.parameters(), lr=lr_schedule(1), **self.optimizer_kwargs)
 
 
-class MultiAircraftGNNPolicy(ActorCriticPolicy):
+class MultiAircraftGraphPolicy(ActorCriticPolicy):
     def __init__(
             self,
             observation_space: spaces.Space,
             action_space: spaces.Space,
             lr_schedule: Schedule,
+            action_model_class: Type[Module],
+            value_net_class: Type[Module],
             node_feature_dim: int,
             edge_feature_dim: int,
             freeze_action_net: bool = False,
@@ -64,6 +66,8 @@ class MultiAircraftGNNPolicy(ActorCriticPolicy):
     ):
         kwargs["ortho_init"] = False
 
+        self.action_model_class = action_model_class
+        self.value_net_class = value_net_class
         self.node_feature_dim = node_feature_dim
         self.edge_feature_dim = edge_feature_dim
         self.freeze_action_net = freeze_action_net
@@ -76,44 +80,45 @@ class MultiAircraftGNNPolicy(ActorCriticPolicy):
     def _build_mlp_extractor(self) -> None:
         raise NotImplementedError("Not using MLP")
 
-    def _build_gnn_extractor(self) -> None:
-        self.gnn_model = WSSSAPP02GINE(self.node_feature_dim, self.edge_feature_dim)
+    def _build_action_extractor(self) -> None:
+        self.action_model = self.action_model_class(self.node_feature_dim, self.edge_feature_dim)
         if self.load_model_path is not None:
-            self.gnn_model.load_state_dict(th.load(self.load_model_path))
+            self.action_model.load_state_dict(th.load(self.load_model_path))
 
     def _build(self, lr_schedule: Schedule) -> None:
         self.feature_processor = GNNProcessor()
 
-        self._build_gnn_extractor()
+        self._build_action_extractor()
 
         self.action_net = nn.Identity()
-        self.value_net = WSSSAPP02ValueNet()
+        self.value_net = self.value_net_class(self.node_feature_dim, self.edge_feature_dim)
 
         # Setup optimizer with initial learning rate
         if not self.freeze_action_net:
-            self.optimizer = self.optimizer_class(list(self.gnn_model.parameters()) + list(self.value_net.parameters()) + list(self.action_net.parameters()), lr=lr_schedule(1), **self.optimizer_kwargs)
+            self.optimizer = self.optimizer_class(list(self.action_model.parameters()) + list(self.value_net.parameters()) + list(self.action_net.parameters()), lr=lr_schedule(1), **self.optimizer_kwargs)
         else:
             self.optimizer = self.optimizer_class(self.value_net.parameters(), lr=lr_schedule(1), **self.optimizer_kwargs)
 
-            for param in self.gnn_model.parameters():
+            for param in self.action_model.parameters():
                 param.requires_grad = False
 
             for param in self.action_net.parameters():
                 param.requires_grad = False
 
-    def get_gnn_parameters(self):
-        return list(self.gnn_model.parameters())
+    def get_action_model_parameters(self):
+        return list(self.action_model.parameters())
 
     def _init_distributions(self, action_space: spaces.Space):
         self.aircraft_dist = CategoricalDistribution(action_space.nvec[0])
         self.hdg_alt_spd_dist = MultiCategoricalDistribution(list(action_space.nvec[1:]))
 
-    def _model_output_from_obs(self, obs: th.Tensor) -> tuple[th.Tensor, th.Tensor, th.Tensor]:
+    def _model_output_from_obs(self, obs: th.Tensor) -> tuple[th.Tensor, th.Tensor, th.Tensor, th.Tensor]:
         x = self.feature_processor.preprocess_data(obs)
-        actions_raw, latent_rep = self.gnn_model(x.x, x.edge_index, x.edge_attr)
+        actions_raw, latent_rep = self.action_model(x.x, x.edge_index, x.edge_attr)
+        value = self.value_net(x.x, x.edge_index, x.edge_attr)
         aircraft_logits, action_logits = self.feature_processor.postprocess_data(actions_raw)
 
-        return aircraft_logits, action_logits, latent_rep
+        return aircraft_logits, action_logits, latent_rep, value
 
     def forward_pass_full(self, obs: th.Tensor, deterministic: bool = False, action_only=False) -> Union[th.Tensor, tuple[th.Tensor, th.Tensor, th.Tensor]]:
         # obs may contain multiple rows
@@ -124,7 +129,7 @@ class MultiAircraftGNNPolicy(ActorCriticPolicy):
 
         for row_obs in obs:
             row_obs = row_obs.unsqueeze(0)
-            aircraft_logits, action_logits, latent_rep = self._model_output_from_obs(row_obs)
+            aircraft_logits, action_logits, latent_rep, values = self._model_output_from_obs(row_obs)
 
             ac_dist = self.aircraft_dist.proba_distribution(aircraft_logits.unsqueeze(0))
             ac_index = ac_dist.get_actions(deterministic=deterministic)
@@ -148,7 +153,7 @@ class MultiAircraftGNNPolicy(ActorCriticPolicy):
 
             if not action_only:
                 log_prob_list.append(log_prob)
-                values = self.value_net(latent_rep)
+                # values = self.value_net(latent_rep)
                 value_list.append(values)
 
         if action_only:
@@ -180,7 +185,7 @@ class MultiAircraftGNNPolicy(ActorCriticPolicy):
         # We will just iterate
         for idx, row in enumerate(obs):
             row_actions = actions[idx]
-            aircraft_logits, action_logits, latent_rep = self._model_output_from_obs(row)
+            aircraft_logits, action_logits, latent_rep, value = self._model_output_from_obs(row)
             ac_dist = self.aircraft_dist.proba_distribution(aircraft_logits.unsqueeze(0))
             ac_index = row_actions[0].unsqueeze(0)
             log_prob = ac_dist.log_prob(ac_index)
@@ -190,7 +195,7 @@ class MultiAircraftGNNPolicy(ActorCriticPolicy):
             hdg_alt_spd_actions = row_actions[1:].unsqueeze(0)
             log_prob += combined_dist.log_prob(hdg_alt_spd_actions).squeeze()
 
-            value = self.value_net(latent_rep)
+            # value = self.value_net(latent_rep)
 
             # Sum entropies of each conditional choice * probability of choosing it
             # No aircraft selected -> conditional entropy for hdg/alt/spd is 0
@@ -220,8 +225,8 @@ class MultiAircraftGNNPolicy(ActorCriticPolicy):
         values = []
 
         for row_obs in obs:
-            _, _, latent_rep = self._model_output_from_obs(row_obs)
-            value = self.value_net(latent_rep)
+            _, _, latent_rep, value = self._model_output_from_obs(row_obs)
+            # value = self.value_net(latent_rep)
             values.append(value)
 
         return th.stack(values)

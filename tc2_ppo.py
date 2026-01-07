@@ -1,3 +1,4 @@
+import argparse
 import joblib
 import numpy as np
 import os
@@ -7,80 +8,26 @@ import wandb
 from common.constants import AIRCRAFT_COUNT, TEST_DATA
 from datetime import datetime
 from gymnasium import spaces
+from models.models import ActionNets, ValueNets
 from playsound3 import playsound
-from policies import MultiAircraftTransformerPolicy, MultiAircraftGNNPolicy
+from policies import MultiAircraftGraphPolicy
 from rl_algos import RLAlgos
 from stable_baselines3.common.env_util import make_vec_env
 from tc2_env import make_env
 from utils.callbacks import PPOStatsCallback
 
 
-ALGO = RLAlgos.PPO
-algo = ALGO.value
-algo_name = ALGO.name
-
-if ALGO == RLAlgos.SAC:
-    LEARNING_RATE = 5e-4
-    MIN_LR = 1e-5
-    TIMESTEPS = 400_000
-    POLICY = "MlpPolicy"
-    model_kwargs = {
-        "ent_coef": "auto",
-        "batch_size": 256,
-        "gamma": 0.99
-    }
-    STATS_LOG_INTERVAL = 100
-elif ALGO == RLAlgos.PPO:
-    LEARNING_RATE = 1e-4
-    MIN_LR = LEARNING_RATE * 0.2
-    TIMESTEPS = 100_000
-    POLICY = MultiAircraftGNNPolicy
-    model_kwargs = {
-        "ent_coef": 0.01,
-        "n_epochs": 5,
-        "n_steps": 256,
-        "batch_size": 64,
-        "gamma": 0.99,
-        "policy_kwargs": {
-            # "token_dim": 11,
-            # "max_tokens": AIRCRAFT_COUNT,
-            "node_feature_dim": 18,
-            "edge_feature_dim": 2,
-            "freeze_action_net": False,
-            # "load_model_path": "/Users/bombbird2001/Desktop/atc-rl-adsbexchange/trained_models/feat18_gine2_linear1_Adam_lr-0.005_batch_32_epochs-50_2026-01-04_044719/21.pt",
-        },
-    }
-    STATS_LOG_INTERVAL = 3
-elif ALGO == RLAlgos.PPO_LSTM:
-    LEARNING_RATE = 2e-4
-    MIN_LR = 1e-5
-    TIMESTEPS = 1_000_000
-    POLICY = "MlpLstmPolicy"
-    model_kwargs = {
-        "ent_coef": 0.04,
-        "n_epochs": 10,
-        "batch_size": 128,
-        "gamma": 0.99
-    }
-    STATS_LOG_INTERVAL = 50
-else:
-    raise NotImplementedError(f"Unknown policy {ALGO.name}")
-
-
 TRAIN = True
-ENV_COUNT = 4
+ENV_COUNT = 8
 DEVICE = "cpu"
 AUTO_INIT_SIM = True
 start_from_version = None
-version = f"multi-aircraft-gnn-{datetime.now().strftime("%Y-%m-%d_%H-%M-%S")}-lr-{LEARNING_RATE}-batch-{model_kwargs['batch_size']}-ent-coef-{model_kwargs['ent_coef']}-steps-{TIMESTEPS}"
 additional_description = f"""STAR spawn location
 No clearance penalty
 No conflict enforcement
 Max offset angle 80 degrees for LOC capture
 Altitude below G/S for LOC capture
 No max IAS for LOC capture"""
-# version = "multi-aircraft-test"
-eval_version = "multi-aircraft-transformer-2025-11-01_21-50-28-lr-0.0001-ent-coef-0.03-steps-600000"
 
 
 if not AUTO_INIT_SIM:
@@ -92,10 +39,59 @@ def linear_schedule(initial_value: float, min_lr: float):
     return func
 
 
-def train():
+def train(
+        algo_name: str, action_model: str, value_model: str, learning_rate: float, timesteps: int, ent_coef: float,
+        n_epochs: int, n_steps: int, batch_size: int, gamma: float
+):
+    algo = RLAlgos[algo_name]
+
+    min_lr = learning_rate * 0.2
+
+    if algo == RLAlgos.SAC:
+        POLICY = "MlpPolicy"
+        model_kwargs = {
+            "ent_coef": "auto",
+            "batch_size": batch_size,
+            "gamma": gamma
+        }
+        STATS_LOG_INTERVAL = 100
+    elif algo == RLAlgos.PPO:
+        POLICY = MultiAircraftGraphPolicy
+        model_kwargs = {
+            "ent_coef": ent_coef,
+            "n_epochs": n_epochs,
+            "n_steps": n_steps,
+            "batch_size": batch_size,
+            "gamma": gamma,
+            "policy_kwargs": {
+                # "token_dim": 11,
+                # "max_tokens": AIRCRAFT_COUNT,
+                "action_model_class": ActionNets[action_model].value,
+                "value_net_class": ValueNets[value_model].value,
+                "node_feature_dim": 18,
+                "edge_feature_dim": 2,
+                "freeze_action_net": False,
+                # "load_model_path": "/Users/bombbird2001/Desktop/atc-rl-adsbexchange/trained_models/feat18_gine2_linear1_Adam_lr-0.005_batch_32_epochs-50_2026-01-07_072725/29.pt",
+            },
+        }
+        STATS_LOG_INTERVAL = 3
+    elif algo == RLAlgos.PPO_LSTM:
+        POLICY = "MlpLstmPolicy"
+        model_kwargs = {
+            "ent_coef": ent_coef,
+            "n_epochs": n_epochs,
+            "batch_size": batch_size,
+            "gamma": gamma
+        }
+        STATS_LOG_INTERVAL = 50
+    else:
+        raise NotImplementedError(f"Unknown policy {algo_name}")
+
+    version = f"multi-aircraft-gnn-{datetime.now().strftime("%Y-%m-%d_%H-%M-%S")}-lr-{learning_rate}-batch-{model_kwargs['batch_size']}-ent-coef-{model_kwargs['ent_coef']}-steps-{timesteps}"
+
     tc2_env = make_vec_env(make_env, n_envs=ENV_COUNT,
                            env_kwargs={
-                               "algo": ALGO,
+                               "algo": algo,
                                "ac_type_one_hot_encoder": joblib.load("common/recat_one_hot_encoder.joblib"),
                                "auto_init_sim": TRAIN and AUTO_INIT_SIM,
                                "reset_print_period": 50,
@@ -111,9 +107,9 @@ def train():
             "description": additional_description,
             "started_from_version": start_from_version,
             "env_count": ENV_COUNT,
-            "learning_rate": LEARNING_RATE,
-            "min_lr": MIN_LR,
-            "timesteps": TIMESTEPS,
+            "learning_rate": learning_rate,
+            "min_lr": min_lr,
+            "timesteps": timesteps,
             "policy_name": POLICY if isinstance(POLICY, str) else POLICY.__name__,
             **model_kwargs
         }
@@ -123,17 +119,17 @@ def train():
         f.write(additional_description)
 
     if start_from_version is not None:
-        model = algo.load(
+        model = algo.value.load(
             path=f"{algo_name}/{algo_name}_tc2_{start_from_version}", env=tc2_env, verbose=1, device=DEVICE,
-            learning_rate=linear_schedule(LEARNING_RATE, MIN_LR), log_stats=wandb_run.log, **model_kwargs
+            learning_rate=linear_schedule(learning_rate, min_lr), log_stats=wandb_run.log, **model_kwargs
         )
     else:
-        model = algo.new(
+        model = algo.value.new(
             policy=POLICY, env=tc2_env, verbose=1, device=DEVICE,
-            learning_rate=linear_schedule(LEARNING_RATE, MIN_LR), log_stats=wandb_run.log, **model_kwargs
+            learning_rate=linear_schedule(learning_rate, min_lr), log_stats=wandb_run.log, **model_kwargs
         )
     start_time = time.time()
-    model.learn(total_timesteps=TIMESTEPS, log_interval=STATS_LOG_INTERVAL, callback=PPOStatsCallback(log_stats=wandb_run.log, log_interval=2))
+    model.learn(total_timesteps=timesteps, log_interval=STATS_LOG_INTERVAL, callback=PPOStatsCallback(log_stats=wandb_run.log, log_interval=2))
     end_time = time.time()
     print(f"Training done in {((end_time - start_time) // 60):.0f}m {((end_time - start_time) % 60):.2f}s")
 
@@ -161,21 +157,21 @@ def run():
     # N_HEAD = 1
     # N_LAYERS = 3
 
-    policy = MultiAircraftGNNPolicy(
+    policy = MultiAircraftGraphPolicy(
         spaces.Box(
             low=np.repeat(-1.0, 33 * AIRCRAFT_COUNT),
             high=np.repeat(1.0, 33 * AIRCRAFT_COUNT),
             dtype=np.float32
         ), spaces.MultiDiscrete([1 + AIRCRAFT_COUNT, 72, 14, 10]),
-        lambda x: 1, NODE_FEATURE_DIM, EDGE_FEATURE_DIM,
-        "/Users/bombbird2001/Desktop/atc-rl-adsbexchange/trained_models/feat18_gine2_linear1_Adam_lr-0.005_batch_32_epochs-50_2026-01-04_044719/21.pt"
+        lambda x: 1, ActionNets.WSSSAPP02GINE.value, ValueNets.WSSSAPP02GINEValueNet.value, NODE_FEATURE_DIM, EDGE_FEATURE_DIM,
+        load_model_path="/Users/bombbird2001/Desktop/atc-rl-adsbexchange/trained_models/feat18_gine2_linear1_Adam_lr-0.005_batch_32_epochs-50_2026-01-04_044719/21.pt"
     )
     policy.eval()
     print("Model loaded")
 
     tc2_eval_env = make_vec_env(make_env, n_envs=1,
                                 env_kwargs={
-                                    "algo": ALGO,
+                                    "algo": RLAlgos.PPO,
                                     "ac_type_one_hot_encoder": joblib.load("common/recat_one_hot_encoder.joblib"),
                                     "auto_init_sim": False,
                                     "reset_print_period": 1,
@@ -184,7 +180,7 @@ def run():
     cumulative_reward = 0
     while True:
         with torch.no_grad():
-            action = policy.forward(torch.Tensor(obs), deterministic=True)[0].unsqueeze(0).numpy().astype(np.int32)
+            action = policy.forward(torch.Tensor(obs), deterministic=True)[0].numpy().astype(np.int32)
             obs, reward, terminated, info = tc2_eval_env.step(action)
             cumulative_reward += reward
             if terminated:
@@ -193,14 +189,14 @@ def run():
 
 
 def quick_test():
-    policy = MultiAircraftGNNPolicy(
+    policy = MultiAircraftGraphPolicy(
         spaces.Box(
             low=np.repeat(-1.0, 33 * AIRCRAFT_COUNT),
             high=np.repeat(1.0, 33 * AIRCRAFT_COUNT),
             dtype=np.float32
         ), spaces.MultiDiscrete([1 + AIRCRAFT_COUNT, 72, 14, 10]),
-        lambda x: 1, 18, 2,
-        "/Users/bombbird2001/Desktop/atc-rl-adsbexchange/trained_models/feat18_gine2_linear1_Adam_lr-0.005_batch_32_epochs-50_2026-01-04_044719/21.pt"
+        lambda x: 1, ActionNets.WSSSAPP02GINE.value, ValueNets.WSSSAPP02GINEValueNet.value, 18, 2,
+        load_model_path="/Users/bombbird2001/Desktop/atc-rl-adsbexchange/trained_models/feat18_gine2_linear1_Adam_lr-0.005_batch_32_epochs-50_2026-01-04_044719/21.pt"
     )
 
     action_1, value_1, log_prob_1 = policy(TEST_DATA, deterministic=False)
@@ -215,8 +211,26 @@ def quick_test():
 
 
 if __name__ == "__main__":
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--algo', choices=['PPO'], type=str)
+    parser.add_argument('--action_model', type=str)
+    parser.add_argument('--value_model', type=str)
+    parser.add_argument('--learning_rate', type=float)
+    parser.add_argument('--timesteps', type=int)
+    parser.add_argument('--ent_coef', type=float)
+    parser.add_argument('--batch_size', type=int)
+    parser.add_argument('--n_epochs', type=int)
+    parser.add_argument('--n_steps', type=int)
+    parser.add_argument('--gamma', type=float)
+    args = parser.parse_args()
+
+    print(args)
+
     if TRAIN:
-        train()
+        train(
+            args.algo, args.action_model, args.value_model, args.learning_rate, args.timesteps, args.ent_coef,
+            args.n_epochs, args.n_steps, args.batch_size, args.gamma
+        )
     else:
-        quick_test()
-        # run()
+        # quick_test()
+        run()

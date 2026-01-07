@@ -63,3 +63,44 @@ class WSSSAPP02ValueNet(Module):
     @property
     def name(self):
         return f"linear1"
+
+class WSSSAPP02GINEValueNet(Module):
+    def __init__(self, node_feature_count, edge_feature_count):
+        super().__init__()
+
+        nn1 = Sequential(
+            Linear(node_feature_count, 64),
+            LayerNorm(64),
+            GELU(),
+            Linear(64, 64),
+        )
+        nn2 = Sequential(
+            Linear(64, 64),
+            LayerNorm(64),
+            GELU(),
+            Linear(64, 64),
+        )
+
+        self.gine1 = GINEConv(nn1, edge_dim=edge_feature_count, train_eps=True)
+        self.gine2 = GINEConv(nn2, edge_dim=edge_feature_count, train_eps=True)
+        self.ln1 = LayerNorm(64)
+        self.ln2 = LayerNorm(64)
+
+        self.linear = Linear(64, 1)
+
+    def forward(self, x: torch.Tensor, edge_index, edge_attr):
+        h = self.gine1(x, edge_index, edge_attr)
+        h = self.ln1(h)
+        h = F.gelu(h)
+        h = self.gine2(h, edge_index, edge_attr)
+        h = self.ln2(h)
+        h = F.gelu(h)
+        # Global average pooling
+        h = h.mean(dim=0)
+        h = self.linear(h)
+
+        return h
+
+    @property
+    def name(self):
+        return f"gine2_gap_linear1"
