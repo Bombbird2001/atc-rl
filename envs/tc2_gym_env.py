@@ -12,17 +12,15 @@ from common.constants import AIRCRAFT_COUNT, SPD_BIAS, SPD_SCALE_DOWN, \
     ALT_RATE_SCALE_DOWN, ALT_BIAS
 from common.data_preprocessing import RECAT_MAPPING
 from gymnasium import spaces
-from enum import Enum
 from rl_algos import RLAlgo, RLAlgos
 from sklearn.preprocessing import OneHotEncoder
-from typing import List, Optional
 from utils.game_bridge import GameBridge
 
 
 SIMULATOR_JAR = os.getenv("SIMULATOR_JAR")
 
 
-class TC2Env(gym.Env):
+class TC2GymEnv(gym.Env):
     def __init__(
             self, algo: RLAlgo, ac_type_one_hot_encoder: OneHotEncoder, is_eval=False, render_mode=None, reset_print_period=1, instance_suffix="",
             init_sim=True, max_steps=300
@@ -72,12 +70,12 @@ class TC2Env(gym.Env):
             (ACT_HDG_MAX - ACT_HDG_MIN) / 2,
             (ACT_ALT_MAX - ACT_ALT_MIN) / 2000,
             (ACT_SPD_MAX - ACT_SPD_MIN) / 20,
-        ])
+            ])
         self.action_adder = np.array([
             (ACT_HDG_MIN + ACT_HDG_MAX) / 2,
             (ACT_ALT_MIN + ACT_ALT_MAX) / 2000 - 2,
             (ACT_SPD_MIN + ACT_SPD_MAX) / 20 - 16,
-        ])
+            ])
 
         # [aircraft type, x, y, alt, gs, track, angular speed, vertical speed,
         # current cleared altitude, current cleared heading, current cleared speed, localizer captured] normalized
@@ -233,78 +231,11 @@ class TC2Env(gym.Env):
             self.sim_process.send_signal(signal.CTRL_C_EVENT if platform.system() == "Windows" else signal.SIGINT)
 
 
-class MCTSPartialState(Enum):
-    HDG_SELECTED = 0
-    HDG_ALT_SELECTED = 1
-    ALL_SELECTED = 2
-
-
-class MCTSState:
-    def __init__(
-            self, backing_env: TC2Env, state: np.ndarray, terminated: bool, terminal_reward: float,
-            state_type: MCTSPartialState, hdg_action: Optional[int], alt_action: Optional[int], spd_action: Optional[int]
-    ):
-        self.backing_env = backing_env
-        self.state = state
-        self.terminated = terminated
-        self.terminal_reward = terminal_reward
-        self.state_type = state_type
-
-        self.hdg_action = hdg_action
-        self.alt_action = alt_action
-        self.spd_action = spd_action
-
-        self.possible_actions_hdg = list(range(backing_env.action_space.n_vec[0]))
-        self.possible_actions_alt = list(range(backing_env.action_space.n_vec[1]))
-        self.possible_actions_spd = list(range(backing_env.action_space.n_vec[2]))
-
-    def getPossibleActions(self) -> List[int]:
-        if self.state_type == MCTSPartialState.HDG_SELECTED:
-            return self.possible_actions_alt
-        elif self.state_type == MCTSPartialState.HDG_ALT_SELECTED:
-            return self.possible_actions_spd
-        return self.possible_actions_hdg
-
-    def takeAction(self, action: int):
-        if self.state_type == MCTSPartialState.HDG_SELECTED:
-            return MCTSState(
-                self.backing_env, self.state, self.terminated, self.terminal_reward, MCTSPartialState.HDG_ALT_SELECTED,
-                self.hdg_action, self.alt_action, None
-            )
-        if self.state_type == MCTSPartialState.HDG_ALT_SELECTED:
-            combined_actions = (self.hdg_action, self.alt_action, action)
-            # TODO Set simulator state then step
-
-            obs, reward, terminated, _, _ = self.backing_env.step(combined_actions)
-            return MCTSState(
-                self.backing_env, obs, terminated, terminal_reward, MCTSPartialState.ALL_SELECTED,
-                None, None, None
-            )
-
-        return MCTSState(
-            self.backing_env, self.state, self.terminated, self.terminal_reward, MCTSPartialState.HDG_SELECTED,
-            self.hdg_action, None, None
-        )
-
-    def isTerminal(self):
-        return self.terminated
-
-    def getReward(self):
-        return self.terminal_reward
-
-    @classmethod
-    def getRootState(cls, backing_env: TC2Env, state: np.ndarray):
-        return MCTSState(
-            backing_env, state, False, 1e20, MCTSPartialState.ALL_SELECTED,
-            None, None, None
-        )
-
-
 def make_env(
         env_id: int, algo: RLAlgo, ac_type_one_hot_encoder: OneHotEncoder,
         auto_init_sim: bool, reset_print_period: int
 ):
-    backing_env = TC2Env(
+    backing_env = TC2GymEnv(
         algo, ac_type_one_hot_encoder=ac_type_one_hot_encoder, render_mode="human",
         reset_print_period=reset_print_period, instance_suffix=str(env_id),
         init_sim=auto_init_sim

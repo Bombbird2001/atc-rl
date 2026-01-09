@@ -13,7 +13,7 @@ from playsound3 import playsound
 from policies import MultiAircraftGraphPolicy
 from rl_algos import RLAlgos
 from stable_baselines3.common.env_util import make_vec_env
-from tc2_env import make_env
+from envs.tc2_gym_env import make_env
 from utils.callbacks import PPOStatsCallback
 
 
